@@ -298,11 +298,6 @@ def get_ydl_base_opts() -> Dict[str, Any]:
         'noplaylist': True,
         'socket_timeout': 15,
         'source_address': '0.0.0.0',
-        'extractor_args': {
-            'youtubepot-bgutilhttp': {
-                'base_url': 'http://127.0.0.1:4416'
-            }
-        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
