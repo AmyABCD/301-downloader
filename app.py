@@ -209,11 +209,11 @@ def get_ydl_base_opts() -> Dict[str, Any]:
         'no_color': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'tv_embedded', 'web']
+                'player_client': ['mweb', 'android', 'ios']
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
@@ -420,7 +420,7 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
         'windowsfilenames': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'tv_embedded', 'web']
+                'player_client': ['mweb', 'android', 'ios']
             }
         },
         'http_headers': {
