@@ -9,8 +9,8 @@ RUN apt-get update && \
 
 ENV PATH="/root/.deno/bin:$PATH"
 
-# Run deno install in server directory so generate_once.ts dependencies are pre-installed
-RUN cd /root/bgutil-ytdlp-pot-provider/server && deno install
+# Run deno install in server directory so all dependencies and canvas scripts are pre-installed
+RUN cd /root/bgutil-ytdlp-pot-provider/server && deno install --allow-scripts=npm:canvas
 
 WORKDIR /app
 
@@ -27,4 +27,4 @@ EXPOSE 10000
 
 ENV PORT=8000
 
-CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "cd /root/bgutil-ytdlp-pot-provider/server && deno task start & cd /app && uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -89,6 +89,26 @@ def ensure_pot_provider() -> Dict[str, Any]:
     except Exception:
         pass
 
+    deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
+    server_dir = "/root/bgutil-ytdlp-pot-provider/server"
+    if os.path.exists(server_dir) and (os.path.exists(deno_bin) or shutil.which("deno")):
+        try:
+            POT_PROCESS[0] = subprocess.Popen(
+                [deno_bin, "task", "start"],
+                cwd=server_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(2)
+            try:
+                req = urllib.request.Request("http://127.0.0.1:4416/ping")
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    return {"status": "running", "code": resp.status, "pid": POT_PROCESS[0].pid}
+            except Exception as pe:
+                return {"status": "started", "pid": POT_PROCESS[0].pid, "ping": str(pe)}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     pot_bin = shutil.which("bgutil-pot") or "/usr/local/bin/bgutil-pot"
     if os.path.exists(pot_bin):
         try:
@@ -115,21 +135,22 @@ def get_pot_status():
 
 
 @app.get("/api/test-pot")
-def test_pot(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
+def test_pot(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0", client: str = "mweb,tv"):
     import subprocess
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "-v",
         "--skip-download",
         "--dump-json",
+        "--extractor-args", f"youtube:player-client={client}",
         url
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         return {
             "returncode": res.returncode,
-            "stdout": res.stdout[:500],
-            "stderr": res.stderr
+            "stdout_len": len(res.stdout),
+            "stderr": res.stderr[-800:] if res.stderr else ""
         }
     except Exception as e:
         return {"error": str(e)}
@@ -296,8 +317,19 @@ def get_ydl_base_opts() -> Dict[str, Any]:
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 15,
+        'socket_timeout': 20,
         'source_address': '0.0.0.0',
+        'extractor_args': {
+            'youtube': {
+                'player-client': ['mweb', 'tv', 'web_safari', 'ios', 'web'],
+            },
+            'youtubepot-bgutilscript': {
+                'server_home': ['/root/bgutil-ytdlp-pot-provider/server']
+            },
+            'youtubepot-bgutilhttp': {
+                'base_url': ['http://127.0.0.1:4416']
+            }
+        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
@@ -345,21 +377,50 @@ async def analyze_url(req: AnalyzeRequest):
     try:
         def extract():
             opts = get_ydl_base_opts()
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(url, download=False)
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    return ydl.extract_info(url, download=False)
+            except Exception as first_err:
+                if "youtube" in url.lower() or "youtu.be" in url.lower():
+                    opts_alt = dict(opts)
+                    opts_alt['extractor_args'] = {
+                        'youtube': {'player-client': ['ios', 'android', 'mweb']},
+                        'youtubepot-bgutilscript': {'server_home': ['/root/bgutil-ytdlp-pot-provider/server']},
+                        'youtubepot-bgutilhttp': {'base_url': ['http://127.0.0.1:4416']}
+                    }
+                    try:
+                        with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
+                            return ydl_alt.extract_info(url, download=False)
+                    except Exception:
+                        pass
+                raise first_err
 
-        info = await loop.run_in_executor(None, extract)
-    except Exception as e:
-        err_msg = str(e)
-        if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
-            detail = "YouTube датацентрын серверээс хандалтыг түр хязгаарласан байна. Баруун дээд '⚙️ YouTube Cookies' цэсээр Cookies оруулснаар 100% найдвартай ажиллана."
-        elif "Private video" in err_msg or "login" in err_msg.lower():
-            detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
-        elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
-            detail = "Энэ линк хүчингүй эсвэл дэмжигдээгүй сайт байна."
-        else:
-            detail = f"Мэдээлэл авахад алдаа гарлаа: {err_msg[:120]}"
-        raise HTTPException(status_code=400, detail=detail)
+        try:
+            info = await loop.run_in_executor(None, extract)
+        except Exception as e:
+            err_msg = str(e)
+            is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
+            if not is_eu and ("429" in err_msg or "403" in err_msg or "bot" in err_msg.lower() or "player response" in err_msg.lower()):
+                try:
+                    proxy_req = urllib.request.Request(
+                        "https://three01-downloader-eu.onrender.com/api/analyze",
+                        data=json.dumps({"url": url}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"}
+                    )
+                    with urllib.request.urlopen(proxy_req, timeout=30) as resp:
+                        return json.loads(resp.read().decode())
+                except Exception:
+                    pass
+
+            if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
+                detail = "YouTube холболтыг шалгаж байна. Түр хүлээгээд дахин оролдоно уу."
+            elif "Private video" in err_msg or "login" in err_msg.lower():
+                detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
+            elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
+                detail = "Энэ линк хүчингүй эсвэл дэмжигдээгүй сайт байна."
+            else:
+                detail = f"Мэдээлэл авахад алдаа гарлаа: {err_msg[:120]}"
+            raise HTTPException(status_code=400, detail=detail)
 
     if not info:
         raise HTTPException(status_code=404, detail="Бичлэгийн мэдээлэл олдсонгүй")
@@ -552,10 +613,25 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
         ydl_opts['merge_output_format'] = 'mp4'
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            job["video_title"] = info.get("title") or "Файл"
-            job["thumbnail"] = info.get("thumbnail")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                job["video_title"] = info.get("title") or "Файл"
+                job["thumbnail"] = info.get("thumbnail")
+        except Exception as first_down_err:
+            if "youtube" in url.lower() or "youtu.be" in url.lower():
+                ydl_opts_alt = dict(ydl_opts)
+                ydl_opts_alt['extractor_args'] = {
+                    'youtube': {'player-client': ['ios', 'android', 'mweb']},
+                    'youtubepot-bgutilscript': {'server_home': ['/root/bgutil-ytdlp-pot-provider/server']},
+                    'youtubepot-bgutilhttp': {'base_url': ['http://127.0.0.1:4416']}
+                }
+                with yt_dlp.YoutubeDL(ydl_opts_alt) as ydl_alt:
+                    info = ydl_alt.extract_info(url, download=True)
+                    job["video_title"] = info.get("title") or "Файл"
+                    job["thumbnail"] = info.get("thumbnail")
+            else:
+                raise first_down_err
 
         # Find the final generated file
         final_ext = "mp3" if format_type == "audio" else "mp4"

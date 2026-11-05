@@ -205,9 +205,20 @@ async function analyzeUrl() {
     }
 
     // Auto clean playlist parameters if it's a single video in a playlist
-    if (url.includes("watch?v=") && url.includes("&list=")) {
-        url = url.split("&list=")[0];
-        urlInput.value = url;
+    if (url.includes("youtube.com/watch") || url.includes("youtu.be/")) {
+        try {
+            const parsed = new URL(url);
+            const v = parsed.searchParams.get("v");
+            if (v) {
+                url = `https://www.youtube.com/watch?v=${v}`;
+                urlInput.value = url;
+            }
+        } catch (e) {
+            if (url.includes("&list=")) {
+                url = url.split("&list=")[0];
+                urlInput.value = url;
+            }
+        }
     }
 
     hideError();
