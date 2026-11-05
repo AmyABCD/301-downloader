@@ -9,15 +9,15 @@ RUN apt-get update && \
 
 ENV PATH="/root/.deno/bin:$PATH"
 
+# Run deno install in server directory so generate_once.ts dependencies are pre-installed
+RUN cd /root/bgutil-ytdlp-pot-provider/server && deno install
+
 WORKDIR /app
 
 # Install Python packages & latest yt-dlp + pot provider plugin
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir --upgrade yt-dlp bgutil-ytdlp-pot-provider
-
-# Pre-cache Deno dependencies for generate_once.ts so token generation is instantaneous
-RUN deno cache --allow-import /root/bgutil-ytdlp-pot-provider/server/src/generate_once.ts || true
 
 # Copy source code
 COPY . .
