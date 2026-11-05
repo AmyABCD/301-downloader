@@ -27,4 +27,4 @@ EXPOSE 10000
 
 ENV PORT=8000
 
-CMD ["sh", "-c", "cd /root/bgutil-ytdlp-pot-provider/server && deno task start & cd /app && uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "cd /root/bgutil-ytdlp-pot-provider/server && deno run -A src/main.ts & cd /app && uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]

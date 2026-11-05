@@ -12,7 +12,9 @@ import json
 import asyncio
 import threading
 import shutil
+import subprocess
 import urllib.parse
+import urllib.request
 import socket
 from typing import Optional, Dict, Any, List
 
@@ -94,7 +96,7 @@ def ensure_pot_provider() -> Dict[str, Any]:
     if os.path.exists(server_dir) and (os.path.exists(deno_bin) or shutil.which("deno")):
         try:
             POT_PROCESS[0] = subprocess.Popen(
-                [deno_bin, "task", "start"],
+                [deno_bin, "run", "-A", "src/main.ts"],
                 cwd=server_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
