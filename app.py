@@ -700,6 +700,12 @@ if __name__ == "__main__":
                 print(f"  👉 {url}")
                 print("  📋 (Санах ойд хуулагдсан. Энэ линкийг бусдад явуулж татуулна уу!)")
                 print("*" * 65)
+                # Auto open browser with public link as well
+                try:
+                    time.sleep(0.5)
+                    webbrowser.open(url)
+                except Exception:
+                    pass
         threading.Thread(target=start_tunnel_thread, daemon=True).start()
 
     uvicorn.run(app, host=host, port=port)
