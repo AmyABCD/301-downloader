@@ -1,11 +1,14 @@
 FROM python:3.11-slim
 
-# Install system dependencies, ffmpeg, curl, and download the standalone PO Token provider binary
+# Install system dependencies, ffmpeg, curl, ca-certificates, unzip, and deno (required for yt-dlp JS challenges)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg curl ca-certificates unzip && \
+    curl -fsSL https://deno.land/install.sh | sh && \
     curl -L -o /usr/local/bin/bgutil-pot https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/latest/download/bgutil-pot-linux-x86_64 && \
     chmod +x /usr/local/bin/bgutil-pot && \
     rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.deno/bin:$PATH"
 
 WORKDIR /app
 
