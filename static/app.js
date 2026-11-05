@@ -186,7 +186,20 @@ function onUrlInput() {
 
 
 function showError(msg) {
-    errorMessage.textContent = msg;
+    if (msg.includes("Cookies") || msg.includes("bot") || msg.includes("датацентр") || msg.includes("Sign in")) {
+        errorMessage.innerHTML = `
+            <span>${msg}</span>
+            <div class="mt-2.5 pt-2 border-t border-red-500/20 flex flex-wrap items-center justify-between gap-2">
+                <span class="text-xs text-amber-300 font-medium">Серверт 1 удаа Cookies хадгалахад 24/7 тасралтгүй ажиллана:</span>
+                <button onclick="document.getElementById('openCookiesBtn').click()" class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 shadow transition-all cursor-pointer">
+                    <i class="fa-solid fa-cookie-bite"></i>
+                    <span>Cookies оруулах</span>
+                </button>
+            </div>
+        `;
+    } else {
+        errorMessage.textContent = msg;
+    }
     errorBox.classList.remove("hidden");
 }
 

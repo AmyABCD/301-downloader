@@ -423,7 +423,7 @@ async def analyze_url(req: AnalyzeRequest):
                     pass
 
             if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
-                detail = "YouTube холболтыг шалгаж байна. Түр хүлээгээд дахин оролдоно уу."
+                detail = "YouTube датацентрын хандалтыг шалгаж байна. '🍪 Cookies' цэсээр 1 удаа Cookies оруулснаар таны компьютер унтраатай байсан ч 24/7 найдвартай ажиллана."
             elif "Private video" in err_msg or "login" in err_msg.lower():
                 detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
             elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
