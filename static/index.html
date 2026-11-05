@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="mn" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>301 Downloader - Universal Video & Audio Downloader</title>
+    <!-- PWA and Mobile Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="301 Downloader">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'gradient': 'gradient 8s linear infinite',
+                    },
+                    keyframes: {
+                        gradient: {
+                            '0%, 100%': { 'background-size': '200% 200%', 'background-position': 'left center' },
+                            '50%': { 'background-size': '200% 200%', 'background-position': 'right center' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+
+    <!-- Glowing Background Elements -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-indigo-600/20 rounded-full blur-[140px]"></div>
+        <div class="absolute top-1/3 -left-40 w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[140px]"></div>
+        <div class="absolute top-2/3 -right-40 w-[500px] h-[500px] bg-pink-600/15 rounded-full blur-[140px]"></div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <header class="border-b border-slate-800/80 backdrop-blur-md bg-slate-950/70 sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="location.reload()">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 font-black text-white text-base tracking-tighter">
+                    301
+                </div>
+                <div>
+                    <span class="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-indigo-200 to-pink-200 bg-clip-text text-transparent">301 Downloader</span>
+                    <span class="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 ml-1.5 border border-indigo-500/30">Pro</span>
+                </div>
+            </div>
+
+            <!-- Header actions -->
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <!-- Share Public Link / Mobile Connect Button -->
+                <button id="sharePublicBtn" title="Бусад хүмүүст нийтийн линк үүсгэх / Утаснаас хандах" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center space-x-1.5">
+                    <i class="fa-solid fa-globe"></i>
+                    <span>Бусадтай хуваалцах</span>
+                </button>
+
+                <!-- PWA Install Button (Hidden by default, shown when eligible) -->
+                <button id="installAppBtn" class="hidden px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-800 text-white text-xs font-semibold transition-all flex items-center space-x-1.5">
+                    <i class="fa-solid fa-download"></i>
+                    <span class="hidden sm:inline">Апп суулгах</span>
+                </button>
+
+                <button id="openFolderBtn" title="Татаж авсан хавтас нээх (Windows)" class="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 hover:border-indigo-500/50 hover:bg-slate-800 text-xs font-medium text-slate-300 transition-all flex items-center space-x-1.5">
+                    <i class="fa-regular fa-folder-open text-indigo-400"></i>
+                    <span class="hidden sm:inline">Хавтас нээх</span>
+                </button>
+                <button id="toggleHistoryBtn" class="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 hover:border-indigo-500/50 hover:bg-slate-800 text-xs font-medium text-slate-300 transition-all flex items-center space-x-1.5">
+                    <i class="fa-solid fa-clock-rotate-left text-pink-400"></i>
+                    <span class="hidden sm:inline">Түүх</span>
+                    <span id="historyBadge" class="hidden px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500 text-white font-bold">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col items-center">
+
+        <!-- Hero Title & Platforms -->
+        <div class="text-center space-y-4 max-w-2xl mb-8">
+            <h1 class="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white leading-tight">
+                Дурын платформоос <br class="hidden sm:inline">
+                <span class="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">MP4 болон MP3</span> татах
+            </h1>
+            <p class="text-slate-400 text-sm sm:text-base">
+                YouTube, Facebook, Instagram, TikTok болон бусад бүх сайтын бичлэгийг хүссэн нягтрал (1080p, 720p, 4K) эсвэл дууны чанараар (320k) шууд татаж аваарай.
+            </p>
+
+            <!-- Platform Icons Bar -->
+            <div class="flex items-center justify-center flex-wrap gap-2 pt-2">
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/25 text-red-400 text-xs font-medium">
+                    <i class="fa-brands fa-youtube"></i>
+                    <span>YouTube</span>
+                </div>
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/25 text-blue-400 text-xs font-medium">
+                    <i class="fa-brands fa-facebook"></i>
+                    <span>Facebook</span>
+                </div>
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-pink-500/10 border border-pink-500/25 text-pink-400 text-xs font-medium">
+                    <i class="fa-brands fa-instagram"></i>
+                    <span>Instagram</span>
+                </div>
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-medium">
+                    <i class="fa-brands fa-tiktok"></i>
+                    <span>TikTok</span>
+                </div>
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/25 text-sky-400 text-xs font-medium">
+                    <i class="fa-brands fa-x-twitter"></i>
+                    <span>X (Twitter)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- URL Input Card -->
+        <div class="w-full bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-2.5 sm:p-3 shadow-2xl shadow-indigo-950/40 relative group">
+            <div class="flex flex-col sm:flex-row items-center gap-2">
+                <div class="relative flex-1 w-full flex items-center">
+                    <div class="absolute left-4 text-slate-500 group-focus-within:text-indigo-400 transition-colors">
+                        <i class="fa-solid fa-link text-lg"></i>
+                    </div>
+                    <input 
+                        type="url" 
+                        id="urlInput" 
+                        placeholder="Линкээ энд оруулна уу... (жишээ: https://www.youtube.com/watch?v=...)" 
+                        class="w-full bg-slate-950/60 border border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-slate-100 rounded-xl pl-12 pr-24 py-3.5 text-sm sm:text-base outline-none transition-all placeholder:text-slate-500"
+                        autocomplete="off"
+                    >
+                    <!-- Paste & Clear Buttons -->
+                    <div class="absolute right-3 flex items-center space-x-1.5">
+                        <button id="clearBtn" title="Арилгах" class="hidden p-1.5 text-slate-500 hover:text-slate-300 rounded-lg hover:bg-slate-800 transition-colors text-xs">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        <button id="pasteBtn" title="Санах ойгоос хуулах" class="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                            <i class="fa-regular fa-clipboard"></i>
+                            <span class="hidden sm:inline">Хуулах</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Analyze Submit Button -->
+                <button 
+                    id="analyzeBtn" 
+                    class="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/50 active:scale-[0.98] transition-all flex items-center justify-center space-x-2 text-sm sm:text-base flex-shrink-0 cursor-pointer"
+                >
+                    <i class="fa-solid fa-magnifying-glass" id="analyzeBtnIcon"></i>
+                    <span id="analyzeBtnText">Шинжлэх</span>
+                </button>
+            </div>
+
+            <!-- Error message container -->
+            <div id="errorBox" class="hidden mt-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs sm:text-sm flex items-start space-x-3">
+                <i class="fa-solid fa-circle-exclamation text-red-400 mt-0.5 text-base flex-shrink-0"></i>
+                <div class="flex-1" id="errorMessage">Алдаа гарлаа.</div>
+                <button onclick="document.getElementById('errorBox').classList.add('hidden')" class="text-red-400 hover:text-red-200">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Skeleton Loading State -->
+        <div id="loadingSkeleton" class="hidden w-full mt-6 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 animate-pulse space-y-4">
+            <div class="flex flex-col sm:flex-row gap-4">
+                <div class="w-full sm:w-48 h-32 bg-slate-800 rounded-xl"></div>
+                <div class="flex-1 space-y-3 py-1">
+                    <div class="h-5 bg-slate-800 rounded w-3/4"></div>
+                    <div class="h-4 bg-slate-800 rounded w-1/3"></div>
+                    <div class="h-8 bg-slate-800 rounded w-1/2 mt-4"></div>
+                </div>
+            </div>
+            <div class="h-24 bg-slate-800/50 rounded-xl"></div>
+        </div>
+
+        <!-- Video Metadata & Format Selection Card -->
+        <div id="resultCard" class="hidden w-full mt-6 bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl shadow-indigo-950/30 transition-all">
+            
+            <!-- Video Info Row -->
+            <div class="flex flex-col sm:flex-row gap-5 items-start">
+                <!-- Thumbnail -->
+                <div class="relative w-full sm:w-56 h-36 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex-shrink-0 group">
+                    <img id="videoThumb" src="" alt="Thumbnail" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                    <div class="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/80 backdrop-blur text-[11px] font-semibold text-white tracking-wider flex items-center space-x-1">
+                        <i class="fa-regular fa-clock text-[10px]"></i>
+                        <span id="videoDuration">--:--</span>
+                    </div>
+                </div>
+
+                <!-- Details -->
+                <div class="flex-1 min-w-0 space-y-2">
+                    <div class="flex items-center space-x-2">
+                        <span id="platformBadge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center space-x-1.5">
+                            <i class="" id="platformIcon"></i>
+                            <span id="platformName">Platform</span>
+                        </span>
+                        <span class="text-xs text-slate-500">•</span>
+                        <span id="videoUploader" class="text-xs font-medium text-slate-400 truncate max-w-[200px]">Uploader</span>
+                    </div>
+
+                    <h2 id="videoTitle" class="text-lg sm:text-xl font-bold text-white line-clamp-2 leading-snug">
+                        Video Title Here
+                    </h2>
+
+                    <p class="text-xs text-slate-500 flex items-center space-x-1">
+                        <i class="fa-solid fa-circle-check text-emerald-400 text-[10px]"></i>
+                        <span>Амжилттай холбогдлоо. Татах форматаа сонгоно уу:</span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="h-px bg-slate-800 my-6"></div>
+
+            <!-- Format Type Selector Tabs -->
+            <div class="flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-xl mb-5 max-w-sm">
+                <button id="tabVideo" class="flex-1 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-indigo-600 text-white shadow">
+                    <i class="fa-solid fa-video"></i>
+                    <span>MP4 Видео</span>
+                </button>
+                <button id="tabAudio" class="flex-1 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-music"></i>
+                    <span>MP3 Дуу</span>
+                </button>
+            </div>
+
+            <!-- Video Options Panel -->
+            <div id="videoOptionsPanel" class="space-y-4">
+                <div class="flex items-center justify-between text-xs text-slate-400 font-medium">
+                    <span>Боломжит нягтралын сонголтууд:</span>
+                    <span class="text-slate-500"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-1"></i>Дуу + Дүрс нэгтгэгдэнэ</span>
+                </div>
+                <div id="videoOptionsGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Audio Options Panel -->
+            <div id="audioOptionsPanel" class="hidden space-y-4">
+                <div class="flex items-center justify-between text-xs text-slate-400 font-medium">
+                    <span>MP3 аудионы чанарын сонголтууд:</span>
+                    <span class="text-slate-500"><i class="fa-solid fa-headphones text-pink-400 mr-1"></i>Цэвэр стерео MP3</span>
+                </div>
+                <div id="audioOptionsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Download Action Button -->
+            <div class="mt-6 pt-5 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div class="text-xs text-slate-400">
+                    Сонгосон: <strong id="selectedSummary" class="text-indigo-300 font-semibold">1080p Full HD</strong>
+                </div>
+                <button 
+                    id="startDownloadBtn" 
+                    class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 active:scale-[0.98] transition-all flex items-center justify-center space-x-2 text-sm sm:text-base cursor-pointer"
+                >
+                    <i class="fa-solid fa-download"></i>
+                    <span>Татаж эхлэх</span>
+                </button>
+            </div>
+
+        </div>
+
+        <!-- Download Progress Box -->
+        <div id="progressCard" class="hidden w-full mt-6 bg-slate-900/95 backdrop-blur-xl border border-indigo-500/40 rounded-2xl p-5 sm:p-6 shadow-2xl shadow-indigo-950/50 space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="progressSpinner" class="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin flex items-center justify-center"></div>
+                    <div>
+                        <h4 id="progressStage" class="text-sm sm:text-base font-bold text-white">Татаж байна...</h4>
+                        <div class="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                            <span id="progressSpeed"><i class="fa-solid fa-gauge-high mr-1 text-indigo-400"></i>0 KiB/s</span>
+                            <span>•</span>
+                            <span id="progressEta"><i class="fa-regular fa-hourglass mr-1 text-purple-400"></i>--</span>
+                        </div>
+                    </div>
+                </div>
+                <span id="progressPercent" class="text-2xl font-black text-indigo-400">0%</span>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                <div id="progressBar" class="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full transition-all duration-300 w-0"></div>
+            </div>
+
+            <!-- Complete Success Action Bar -->
+            <div id="completeActions" class="hidden pt-2 flex flex-col sm:flex-row items-center gap-3">
+                <a id="downloadFileLink" href="#" download class="flex-1 w-full py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm text-center shadow-lg shadow-emerald-500/30 transition-all flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-file-arrow-down text-base"></i>
+                    <span>Файлыг шууд хадгалах</span>
+                </a>
+                <button id="previewBtn" class="w-full sm:w-auto py-3 px-5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm border border-slate-700 transition-all flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-play text-indigo-400"></i>
+                    <span>Шууд үзэх / сонсох</span>
+                </button>
+                <button id="openFolderActionBtn" class="w-full sm:w-auto py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition-all flex items-center justify-center space-x-1.5">
+                    <i class="fa-regular fa-folder-open text-indigo-400"></i>
+                    <span class="hidden sm:inline">Хавтас</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Share & Public Internet Modal -->
+        <div id="shareModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl p-6 text-center space-y-5">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div class="flex items-center space-x-2 text-indigo-400 font-bold text-base">
+                        <i class="fa-solid fa-globe"></i>
+                        <span>301 Downloader — Бусадтай хуваалцах</span>
+                    </div>
+                    <button onclick="closeShareModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- Section 1: Global Public Internet Link -->
+                <div class="bg-slate-950/70 border border-indigo-500/30 rounded-xl p-4 text-left space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                            <span class="font-bold text-white text-xs sm:text-sm">🌍 Дэлхий даяар нийтийн линк (Интернэтээр орох)</span>
+                        </div>
+                        <span id="publicStatusBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">Шалгаж байна</span>
+                    </div>
+
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        Энэ линкийг найз нөхөддөө явуулахад тэд интернэттэй хаанаас ч (утас, компьютер) шууд орж дуу, видео татаж авч чадна.
+                    </p>
+
+                    <!-- Inactive state button -->
+                    <div id="publicInactiveBox" class="text-center py-2">
+                        <button id="activateTunnelBtn" onclick="activatePublicTunnel()" class="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold rounded-xl text-xs sm:text-sm shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center space-x-2">
+                            <i class="fa-solid fa-bolt"></i>
+                            <span id="activateTunnelBtnText">Нийтийн линк үүсгэх (Cloudflare Tunnel)</span>
+                        </button>
+                    </div>
+
+                    <!-- Active state URL & QR -->
+                    <div id="publicActiveBox" class="hidden space-y-3 pt-1">
+                        <div class="flex items-center space-x-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 py-2">
+                            <input id="publicUrlDisplay" type="text" readonly class="flex-1 bg-transparent text-emerald-400 text-xs sm:text-sm font-mono outline-none font-semibold truncate">
+                            <button onclick="copyPublicUrl()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shadow">
+                                <i class="fa-regular fa-copy"></i>
+                                <span>Хуулах</span>
+                            </button>
+                        </div>
+                        <div class="text-center">
+                            <div class="bg-white p-3 rounded-xl inline-block shadow-md">
+                                <img id="publicQrImg" src="" alt="Public QR Code" class="w-36 h-36 object-contain">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Local Wi-Fi Network -->
+                <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-3.5 text-left space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="font-semibold text-slate-300 text-xs flex items-center space-x-1.5">
+                            <i class="fa-solid fa-wifi text-emerald-400"></i>
+                            <span>Нэг Wi-Fi сүлжээний дотоод хаяг:</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center space-x-2 bg-slate-900/80 border border-slate-800 rounded-lg px-2.5 py-1.5">
+                        <input id="localUrlDisplay" type="text" readonly class="flex-1 bg-transparent text-slate-400 text-xs font-mono outline-none truncate">
+                        <button onclick="copyLocalUrl()" class="text-slate-400 hover:text-white px-2 py-0.5 text-xs">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- In-Browser Media Player Modal -->
+        <div id="playerModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl">
+                <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                    <h3 id="playerModalTitle" class="text-sm font-bold text-white truncate max-w-md">Тоглуулагч</h3>
+                    <button onclick="closePlayer()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+                <div class="p-4 bg-slate-950 flex flex-col items-center justify-center min-h-[220px]">
+                    <video id="inlineVideo" controls class="w-full rounded-lg max-h-[400px] hidden"></video>
+                    <audio id="inlineAudio" controls class="w-full max-w-md my-6 hidden"></audio>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Drawer / Slide-Over -->
+        <div id="historyDrawer" class="fixed inset-y-0 right-0 max-w-md w-full bg-slate-900 border-l border-slate-800 z-50 transform translate-x-full transition-transform duration-300 shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-clock-rotate-left text-pink-400"></i>
+                    <h3 class="font-bold text-white">Татаж авсан түүх</h3>
+                </div>
+                <button onclick="toggleHistory(false)" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <div id="historyList" class="flex-1 overflow-y-auto p-4 space-y-2.5">
+                <!-- History Items injected dynamically -->
+            </div>
+
+            <div class="p-4 border-t border-slate-800 bg-slate-950/50 flex items-center justify-between">
+                <button onclick="openWindowsFolder()" class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center space-x-1.5">
+                    <i class="fa-regular fa-folder-open"></i>
+                    <span>Хавтас нээх</span>
+                </button>
+                <button onclick="loadHistory()" class="text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-1">
+                    <i class="fa-solid fa-arrow-rotate-right"></i>
+                    <span>Шинэчлэх</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Help & Instructions Section -->
+        <div class="w-full mt-12 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4.5 space-y-2">
+                <div class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center font-bold text-sm">
+                    1
+                </div>
+                <h4 class="font-semibold text-white text-sm">Линк хуулах</h4>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    YouTube бичлэг, Shorts, Facebook video/reel эсвэл Instagram постын "Share -> Copy link" дарж линкийг хуулна.
+                </p>
+            </div>
+
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4.5 space-y-2">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold text-sm">
+                    2
+                </div>
+                <h4 class="font-semibold text-white text-sm">Формат & Нягтрал сонгох</h4>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    1080p Full HD, 720p HD эсвэл 320k өндөр чанартай MP3 дуу сонголтоос хүссэнээ товшино.
+                </p>
+            </div>
+
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4.5 space-y-2">
+                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm">
+                    3
+                </div>
+                <h4 class="font-semibold text-white text-sm">Шууд татаж авах</h4>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    "Татаж эхлэх" дээр дарахад бодит цагийн явц харагдаж, бэлэн болоход шууд таны төхөөрөмжид хадгалагдана.
+                </p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span>301 Downloader • Бүх платформын медиа татагч</span>
+            <span>FastAPI & yt-dlp & FFmpeg технологиор бүтээгдэв</span>
+        </div>
+    </footer>
+
+    <!-- App Script -->
+    <script src="app.js"></script>
+</body>
+</html>

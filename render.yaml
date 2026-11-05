@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: 301-downloader
+    runtime: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
