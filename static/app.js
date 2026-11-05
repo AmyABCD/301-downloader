@@ -771,3 +771,109 @@ function closeWelcomeModal() {
 }
 
 
+// --- YouTube Cookies Management ---
+const openCookiesBtn = document.getElementById("openCookiesBtn");
+const closeCookiesBtn = document.getElementById("closeCookiesBtn");
+const cookiesModal = document.getElementById("cookiesModal");
+const cookiesStatusDot = document.getElementById("cookiesStatusDot");
+const cookiesStatusText = document.getElementById("cookiesStatusText");
+const cookiesTextarea = document.getElementById("cookiesTextarea");
+const cookiesFileInput = document.getElementById("cookiesFileInput");
+const cookiesFileName = document.getElementById("cookiesFileName");
+const cookiesSaveMsg = document.getElementById("cookiesSaveMsg");
+const saveCookiesBtn = document.getElementById("saveCookiesBtn");
+
+async function checkCookiesStatus() {
+    try {
+        const res = await fetch("/api/admin/cookies-status");
+        if (res.ok) {
+            const data = await res.json();
+            if (data.configured) {
+                if (cookiesStatusDot) cookiesStatusDot.className = "w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400";
+                if (cookiesStatusText) cookiesStatusText.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>Cookies идэвхтэй байна (${Math.round(data.size_bytes/1024)} KB)</span>`;
+            } else {
+                if (cookiesStatusDot) cookiesStatusDot.className = "w-2 h-2 rounded-full bg-amber-400 animate-pulse";
+                if (cookiesStatusText) cookiesStatusText.innerHTML = `<span class="text-amber-400 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Cookies оруулаагүй (YouTube хаалттай)</span>`;
+            }
+        }
+    } catch (e) {
+        console.error("Cookies status check error:", e);
+    }
+}
+
+if (openCookiesBtn) {
+    openCookiesBtn.addEventListener("click", () => {
+        checkCookiesStatus();
+        cookiesModal.classList.remove("hidden");
+    });
+}
+
+if (closeCookiesBtn) {
+    closeCookiesBtn.addEventListener("click", () => {
+        cookiesModal.classList.add("hidden");
+    });
+}
+
+if (cookiesFileInput) {
+    cookiesFileInput.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            cookiesFileName.textContent = file.name;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                cookiesTextarea.value = evt.target.result;
+            };
+            reader.readAsText(file);
+        }
+    });
+}
+
+if (saveCookiesBtn) {
+    saveCookiesBtn.addEventListener("click", async () => {
+        const text = cookiesTextarea.value.trim();
+        if (!text) {
+            cookiesSaveMsg.className = "text-xs py-2 px-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30";
+            cookiesSaveMsg.textContent = "Cookies хоосон байна! Текст хуулж эсвэл .txt файл сонгоно уу.";
+            cookiesSaveMsg.classList.remove("hidden");
+            return;
+        }
+
+        saveCookiesBtn.disabled = true;
+        saveCookiesBtn.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin"></i><span>Хадгалж байна...</span>`;
+
+        try {
+            const res = await fetch("/api/admin/cookies", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cookies: text })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                cookiesSaveMsg.className = "text-xs py-2 px-3 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                cookiesSaveMsg.textContent = data.message || "Амжилттай хадгалагдлаа!";
+                cookiesSaveMsg.classList.remove("hidden");
+                checkCookiesStatus();
+                setTimeout(() => {
+                    cookiesModal.classList.add("hidden");
+                    cookiesSaveMsg.classList.add("hidden");
+                }, 1800);
+            } else {
+                cookiesSaveMsg.className = "text-xs py-2 px-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30";
+                cookiesSaveMsg.textContent = data.detail || "Хадгалахад алдаа гарлаа";
+                cookiesSaveMsg.classList.remove("hidden");
+            }
+        } catch (e) {
+            cookiesSaveMsg.className = "text-xs py-2 px-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30";
+            cookiesSaveMsg.textContent = "Сервертэй холбогдоход алдаа гарлаа: " + e.message;
+            cookiesSaveMsg.classList.remove("hidden");
+        } finally {
+            saveCookiesBtn.disabled = false;
+            saveCookiesBtn.innerHTML = `<i class="fa-solid fa-floppy-disk"></i><span>Серверт хадгалах</span>`;
+        }
+    });
+}
+
+// Initial status check
+checkCookiesStatus();
+
+

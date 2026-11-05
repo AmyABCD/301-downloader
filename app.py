@@ -43,6 +43,20 @@ except Exception:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+COOKIE_FILE = os.path.join(BASE_DIR, "cookies.txt")
+SECRET_COOKIE_FILE = "/etc/secrets/cookies.txt"
+
+# If secret file exists in Render, prioritize it
+if os.path.exists(SECRET_COOKIE_FILE) and os.path.getsize(SECRET_COOKIE_FILE) > 0:
+    COOKIE_FILE = SECRET_COOKIE_FILE
+elif os.environ.get("YOUTUBE_COOKIES"):
+    # If YOUTUBE_COOKIES is provided via Render Environment Variables, write to cookies.txt
+    try:
+        with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+            f.write(os.environ.get("YOUTUBE_COOKIES").strip())
+        print("Loaded cookies from YOUTUBE_COOKIES environment variable!")
+    except Exception as e:
+        print("Error writing cookies from env:", e)
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
@@ -72,6 +86,9 @@ class DownloadRequest(BaseModel):
     url: str
     format_type: str  # "video" or "audio"
     quality: str      # e.g. "1080", "720", "480", "360", "best", or for audio "320", "256", "192", "128"
+
+class CookiePayload(BaseModel):
+    cookies: str
 
 
 def launch_cloudflared_tunnel(port: int = 8000) -> Optional[str]:
@@ -224,9 +241,12 @@ def get_ydl_base_opts() -> Dict[str, Any]:
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
+        'socket_timeout': 8,
+        'extractor_retries': 1,
+        'source_address': '0.0.0.0',
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'mweb', 'web']
+                'player_client': ['web_embedded', 'mweb', 'android', 'tv']
             }
         },
         'http_headers': {
@@ -236,7 +256,33 @@ def get_ydl_base_opts() -> Dict[str, Any]:
     }
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
+    if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+        opts['cookiefile'] = COOKIE_FILE
     return opts
+
+
+@app.post("/api/admin/cookies")
+async def save_cookies(payload: CookiePayload):
+    text = payload.cookies.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Cookies хоосон байна")
+    try:
+        with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+            f.write(text)
+        return {"status": "ok", "message": "Cookies амжилттай хадгалагдлаа! Одоо YouTube видеонууд шууд татагдана."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cookies хадгалахад алдаа гарлаа: {str(e)}")
+
+
+@app.get("/api/admin/cookies-status")
+async def get_cookies_status():
+    has_cookies = os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
+    size = os.path.getsize(COOKIE_FILE) if has_cookies else 0
+    return {
+        "configured": has_cookies,
+        "size_bytes": size,
+        "message": "Cookies идэвхтэй байна (YouTube нээлттэй)" if has_cookies else "Cookies тохируулаагүй байна"
+    }
 
 
 @app.post("/api/analyze")
@@ -256,7 +302,9 @@ async def analyze_url(req: AnalyzeRequest):
         info = await loop.run_in_executor(None, extract)
     except Exception as e:
         err_msg = str(e)
-        if "Private video" in err_msg or "login" in err_msg.lower():
+        if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
+            detail = "YouTube датацентрын серверээс хандалтыг түр хязгаарласан байна. Баруун дээд '⚙️ YouTube Cookies' цэсээр Cookies оруулснаар 100% найдвартай ажиллана."
+        elif "Private video" in err_msg or "login" in err_msg.lower():
             detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
         elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
             detail = "Энэ линк хүчингүй эсвэл дэмжигдээгүй сайт байна."
@@ -427,27 +475,15 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
 
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title).70B.%(ext)s")
 
+    base = get_ydl_base_opts()
     ydl_opts: Dict[str, Any] = {
+        **base,
+        'skip_download': False,
         'outtmpl': outtmpl,
         'progress_hooks': [progress_hook],
         'postprocessor_hooks': [postprocessor_hook],
-        'quiet': True,
-        'no_warnings': True,
-        'no_color': True,
         'windowsfilenames': True,
-        'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'mweb', 'web']
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        }
     }
-
-    if FFMPEG_EXE:
-        ydl_opts['ffmpeg_location'] = FFMPEG_EXE
 
     if format_type == "audio":
         ydl_opts['format'] = 'bestaudio/best'
