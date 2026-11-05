@@ -374,30 +374,29 @@ async def analyze_url(req: AnalyzeRequest):
 
     # Run extraction in thread to avoid blocking asyncio event loop
     loop = asyncio.get_event_loop()
-    try:
-        def extract():
-            opts = get_ydl_base_opts()
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    return ydl.extract_info(url, download=False)
-            except Exception as first_err:
-                if "youtube" in url.lower() or "youtu.be" in url.lower():
-                    opts_alt = dict(opts)
-                    opts_alt['extractor_args'] = {
-                        'youtube': {'player-client': ['ios', 'android', 'mweb']},
-                        'youtubepot-bgutilscript': {'server_home': ['/root/bgutil-ytdlp-pot-provider/server']},
-                        'youtubepot-bgutilhttp': {'base_url': ['http://127.0.0.1:4416']}
-                    }
-                    try:
-                        with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
-                            return ydl_alt.extract_info(url, download=False)
-                    except Exception:
-                        pass
-                raise first_err
-
+    def extract():
+        opts = get_ydl_base_opts()
         try:
-            info = await loop.run_in_executor(None, extract)
-        except Exception as e:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
+        except Exception as first_err:
+            if "youtube" in url.lower() or "youtu.be" in url.lower():
+                opts_alt = dict(opts)
+                opts_alt['extractor_args'] = {
+                    'youtube': {'player-client': ['ios', 'android', 'mweb']},
+                    'youtubepot-bgutilscript': {'server_home': ['/root/bgutil-ytdlp-pot-provider/server']},
+                    'youtubepot-bgutilhttp': {'base_url': ['http://127.0.0.1:4416']}
+                }
+                try:
+                    with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
+                        return ydl_alt.extract_info(url, download=False)
+                except Exception:
+                    pass
+            raise first_err
+
+    try:
+        info = await loop.run_in_executor(None, extract)
+    except Exception as e:
             err_msg = str(e)
             is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
             if not is_eu and ("429" in err_msg or "403" in err_msg or "bot" in err_msg.lower() or "player response" in err_msg.lower()):
