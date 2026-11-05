@@ -312,6 +312,13 @@ def clean_media_url(url: str) -> str:
     return u
 
 
+try:
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+    CHROME_TARGET = ImpersonateTarget.from_str('chrome-136')
+except Exception:
+    CHROME_TARGET = None
+
+
 def get_ydl_base_opts() -> Dict[str, Any]:
     opts = {
         'quiet': True,
@@ -337,6 +344,8 @@ def get_ydl_base_opts() -> Dict[str, Any]:
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
+    if CHROME_TARGET:
+        opts['impersonate'] = CHROME_TARGET
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
     if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:

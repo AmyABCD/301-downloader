@@ -14,10 +14,10 @@ RUN cd /root/bgutil-ytdlp-pot-provider/server && deno install --allow-scripts=np
 
 WORKDIR /app
 
-# Install Python packages & latest yt-dlp + pot provider plugin
+# Install Python packages & latest yt-dlp + pot provider plugin + curl-cffi for browser TLS impersonation
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --upgrade yt-dlp bgutil-ytdlp-pot-provider
+    pip install --no-cache-dir --upgrade yt-dlp bgutil-ytdlp-pot-provider curl-cffi
 
 # Copy source code
 COPY . .
