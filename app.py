@@ -113,6 +113,27 @@ def on_startup():
 def get_pot_status():
     return ensure_pot_provider()
 
+
+@app.get("/api/test-pot")
+def test_pot(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
+    import subprocess
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "-v",
+        "--skip-download",
+        "--dump-json",
+        url
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        return {
+            "returncode": res.returncode,
+            "stdout": res.stdout[:500],
+            "stderr": res.stderr
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 class AnalyzeRequest(BaseModel):
     url: str
 
