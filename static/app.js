@@ -75,6 +75,12 @@ const localUrlDisplay = document.getElementById("localUrlDisplay");
 const activateTunnelBtn = document.getElementById("activateTunnelBtn");
 const activateTunnelBtnText = document.getElementById("activateTunnelBtnText");
 
+const welcomeModal = document.getElementById("welcomeModal");
+const welcomeCloseBtn = document.getElementById("welcomeCloseBtn");
+const welcomeCountdown = document.getElementById("welcomeCountdown");
+const countdownSec = document.getElementById("countdownSec");
+const welcomeActionBox = document.getElementById("welcomeActionBox");
+
 const playerModal = document.getElementById("playerModal");
 const playerModalTitle = document.getElementById("playerModalTitle");
 const inlineVideo = document.getElementById("inlineVideo");
@@ -163,6 +169,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Initial check on history files
     loadHistory();
+
+    // Show Welcome Modal with 3-second countdown
+    initWelcomeModal();
 });
 
 
@@ -188,11 +197,17 @@ function hideError() {
 
 // --- Analyze URL ---
 async function analyzeUrl() {
-    const url = urlInput.value.trim();
+    let url = urlInput.value.trim();
     if (!url) {
         showError("Татах видеоны линкийг оруулна уу.");
         urlInput.focus();
         return;
+    }
+
+    // Auto clean playlist parameters if it's a single video in a playlist
+    if (url.includes("watch?v=") && url.includes("&list=")) {
+        url = url.split("&list=")[0];
+        urlInput.value = url;
     }
 
     hideError();
@@ -723,4 +738,36 @@ function copyLocalUrl() {
         alert("Wi-Fi хаяг хуулагдлаа: " + localUrlDisplay.value);
     }
 }
+
+
+// --- Welcome Greeting Modal Logic ---
+function initWelcomeModal() {
+    if (!welcomeModal) return;
+    let timeLeft = 3;
+    if (countdownSec) countdownSec.textContent = timeLeft + "с";
+
+    const timer = setInterval(() => {
+        timeLeft--;
+        if (timeLeft > 0) {
+            if (countdownSec) countdownSec.textContent = timeLeft + "с";
+        } else {
+            clearInterval(timer);
+            if (welcomeCountdown) welcomeCountdown.classList.add("hidden");
+            if (welcomeCloseBtn) welcomeCloseBtn.classList.remove("hidden");
+            if (welcomeActionBox) {
+                welcomeActionBox.classList.remove("opacity-0", "pointer-events-none");
+                welcomeActionBox.classList.add("opacity-100");
+            }
+        }
+    }, 1000);
+}
+
+function closeWelcomeModal() {
+    if (!welcomeModal) return;
+    welcomeModal.classList.add("opacity-0", "pointer-events-none");
+    setTimeout(() => {
+        welcomeModal.classList.add("hidden");
+    }, 300);
+}
+
 

@@ -201,19 +201,36 @@ def detect_platform(url: str, extractor_key: str = "") -> Dict[str, str]:
         return {"name": extractor_key or "Web Video", "icon": "globe", "color": "text-indigo-400", "bg": "bg-indigo-400/10", "border": "border-indigo-400/30"}
 
 
+def clean_media_url(url: str) -> str:
+    """Strips playlist parameters (list, index, start_radio) to target single video cleanly."""
+    u = url.strip()
+    if "youtube.com/watch" in u or "youtu.be/" in u:
+        if "watch?v=" in u:
+            parsed = urllib.parse.urlparse(u)
+            params = urllib.parse.parse_qs(parsed.query)
+            v = params.get("v")
+            if v:
+                return f"https://www.youtube.com/watch?v={v[0]}"
+        elif "youtu.be/" in u:
+            clean_id = u.split("youtu.be/")[1].split("?")[0].split("&")[0]
+            return f"https://www.youtube.com/watch?v={clean_id}"
+    return u
+
+
 def get_ydl_base_opts() -> Dict[str, Any]:
     opts = {
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
         'no_color': True,
+        'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['mweb', 'android', 'ios']
+                'player_client': ['android', 'ios', 'mweb', 'web']
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
@@ -224,7 +241,7 @@ def get_ydl_base_opts() -> Dict[str, Any]:
 
 @app.post("/api/analyze")
 async def analyze_url(req: AnalyzeRequest):
-    url = req.url.strip()
+    url = clean_media_url(req.url)
     if not url:
         raise HTTPException(status_code=400, detail="Линк оруулна уу")
 
@@ -418,9 +435,10 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
         'no_warnings': True,
         'no_color': True,
         'windowsfilenames': True,
+        'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['mweb', 'android', 'ios']
+                'player_client': ['android', 'ios', 'mweb', 'web']
             }
         },
         'http_headers': {
@@ -495,7 +513,7 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
 
 @app.post("/api/download")
 async def start_download(req: DownloadRequest):
-    url = req.url.strip()
+    url = clean_media_url(req.url)
     if not url:
         raise HTTPException(status_code=400, detail="Линк оруулна уу")
 
