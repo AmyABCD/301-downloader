@@ -88,7 +88,7 @@ def health_check():
 
 
 @app.get("/api/test-extract")
-def test_extract(client: str = "tv", with_cookies: bool = True):
+def test_extract(client: str = "visionos", impersonate: bool = True):
     import subprocess
     report = {}
     
@@ -97,19 +97,27 @@ def test_extract(client: str = "tv", with_cookies: bool = True):
         ydl_opts = {
             'quiet': True,
             'skip_download': True,
-            'socket_timeout': 8,
-            'retries': 0,
-            'extractor_retries': 0,
+            'socket_timeout': 10,
+            'retries': 1,
+            'extractor_retries': 1,
             'extractor_args': {'youtube': {'player_client': [client]}},
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
         }
-        if with_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
-            ydl_opts['cookiefile'] = COOKIE_FILE
+        if impersonate and CHROME_TARGET:
+            ydl_opts['impersonate'] = CHROME_TARGET
+
+        deno_p = shutil.which("deno") or "/root/.deno/bin/deno"
+        if os.path.exists(deno_p):
+            ydl_opts['js_runtimes'] = {'deno': {'path': deno_p}}
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             inf = ydl.extract_info("https://www.youtube.com/watch?v=7arUzCQDTs0", download=False)
             report["result"] = {
                 "client": client,
-                "with_cookies": with_cookies,
+                "impersonate": impersonate,
                 "time": round(time.time() - t0, 2),
                 "title": inf.get("title"),
                 "fmts_count": len(inf.get("formats", [])),
@@ -119,7 +127,7 @@ def test_extract(client: str = "tv", with_cookies: bool = True):
                 ]
             }
     except Exception as e:
-        report["result"] = {"client": client, "with_cookies": with_cookies, "time": round(time.time() - t0, 2), "error": str(e)}
+        report["result"] = {"client": client, "impersonate": impersonate, "time": round(time.time() - t0, 2), "error": str(e)}
 
     return report
 
