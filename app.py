@@ -321,7 +321,6 @@ except Exception:
 
 def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
     has_cookies = use_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
-    clients = ['web', 'mweb']
     opts = {
         'quiet': True,
         'no_warnings': True,
@@ -332,11 +331,6 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
         'source_address': '0.0.0.0',
         'ignore_no_formats_error': True,
         'check_formats': None,
-        'extractor_args': {
-            'youtube': {
-                'player-client': clients,
-            },
-        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',

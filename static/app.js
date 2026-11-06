@@ -170,6 +170,16 @@ document.addEventListener("DOMContentLoaded", () => {
     // Initial check on history files
     loadHistory();
 
+    const mirrorLink = document.getElementById("serverMirrorLink");
+    const mirrorText = document.getElementById("serverMirrorText");
+    if (mirrorLink && mirrorText) {
+        if (window.location.hostname.includes("eu")) {
+            mirrorLink.href = "https://three01-downloader.onrender.com";
+            mirrorText.textContent = "US Сервер 🇺🇸";
+            mirrorLink.className = "px-2.5 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-400 text-xs font-semibold transition-all flex items-center space-x-1 shadow-sm";
+        }
+    }
+
     // Show Welcome Modal with 3-second countdown
     initWelcomeModal();
 });
@@ -245,11 +255,35 @@ async function analyzeUrl() {
     analyzeBtnText.textContent = "Шинжилж байна...";
 
     try {
-        const res = await fetch("/api/analyze", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url })
-        });
+        let res = null;
+        let usedOrigin = "";
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 12000);
+            res = await fetch("/api/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!res.ok && !window.location.hostname.includes("eu")) {
+                throw new Error("Switch to high-speed mirror");
+            }
+        } catch (fetchErr) {
+            // Failover to EU high-speed mirror if primary is slow or on US
+            if (!window.location.hostname.includes("eu")) {
+                usedOrigin = "https://three01-downloader-eu.onrender.com";
+                state.serverOrigin = usedOrigin;
+                res = await fetch(`${usedOrigin}/api/analyze`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url })
+                });
+            } else {
+                throw fetchErr;
+            }
+        }
 
         const data = await res.json();
         if (!res.ok) {
@@ -439,7 +473,8 @@ async function startDownload() {
     progressCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
     try {
-        const res = await fetch("/api/download", {
+        const endpoint = (state.serverOrigin || "") + "/api/download";
+        const res = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -470,7 +505,8 @@ function listenProgress(jobId) {
         state.eventSource.close();
     }
 
-    const sse = new EventSource(`/api/stream/${jobId}`);
+    const sseUrl = (state.serverOrigin || "") + `/api/stream/${jobId}`;
+    const sse = new EventSource(sseUrl);
     state.eventSource = sse;
 
     sse.onmessage = (event) => {
@@ -493,7 +529,8 @@ function listenProgress(jobId) {
 function pollProgress(jobId) {
     const interval = setInterval(async () => {
         try {
-            const res = await fetch(`/api/progress/${jobId}`);
+            const pollUrl = (state.serverOrigin || "") + `/api/progress/${jobId}`;
+            const res = await fetch(pollUrl);
             if (!res.ok) {
                 clearInterval(interval);
                 return;
@@ -532,11 +569,15 @@ function handleJobUpdate(job) {
         progressStage.textContent = "Амжилттай татагдлаа! (" + (job.filesize_str || "") + ")";
         progressSpinner.classList.add("hidden");
 
+        const finalDownloadUrl = (state.serverOrigin && !job.download_url.startsWith("http")) 
+            ? (state.serverOrigin + job.download_url) 
+            : job.download_url;
+
         // Action links
-        downloadFileLink.href = job.download_url;
+        downloadFileLink.href = finalDownloadUrl;
         downloadFileLink.setAttribute("download", job.public_name || "download");
 
-        state.lastDownloadedUrl = job.download_url;
+        state.lastDownloadedUrl = finalDownloadUrl;
         state.lastDownloadedType = job.format_type;
         state.lastDownloadedTitle = job.public_name;
 
@@ -547,7 +588,7 @@ function handleJobUpdate(job) {
         // Trigger auto browser download
         setTimeout(() => {
             const triggerLink = document.createElement("a");
-            triggerLink.href = job.download_url;
+            triggerLink.href = finalDownloadUrl;
             triggerLink.setAttribute("download", job.public_name || "download");
             document.body.appendChild(triggerLink);
             triggerLink.click();
