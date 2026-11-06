@@ -198,14 +198,14 @@ function onUrlInput() {
 function showError(msg) {
     if (msg.includes("aborted") || msg.includes("хугацаа") || msg.includes("timeout") || msg.includes("Timeout")) {
         errorMessage.textContent = "Сервер түр ачаалалтай байна. Та дахин нэг удаа 'Шинжлэх' дарна уу.";
-    } else if (msg.includes("Sign in to confirm you're not a bot") || msg.includes("botwall")) {
+    } else if (msg.includes("Sign in to confirm you're not a bot") || msg.includes("botwall") || msg.includes("Google холболт") || msg.includes("Google баталгаажуулалт")) {
         errorMessage.innerHTML = `
-            <span>YouTube-ээс татахад серверт нэг удаагийн Google баталгаажуулалт шаардлагатай байна.</span>
+            <span>YouTube-ийн үүлэн сервер дээрх хандалтыг шалгаж байна.</span>
             <div class="mt-2.5 pt-2 border-t border-red-500/20 flex flex-wrap items-center justify-between gap-2">
-                <span class="text-xs text-red-200 font-medium">Компьютер унтраатай байсан ч 24/7 татахын тулд:</span>
-                <button onclick="document.getElementById('openOAuthBtn').click()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-md shadow-red-600/30 transition-all cursor-pointer">
-                    <i class="fa-brands fa-youtube"></i>
-                    <span>YouTube 24/7 Холбох</span>
+                <span class="text-xs text-red-200 font-medium">Шийдэл: Дээрх Cookies цэсээр холбох эсвэл компьютер дээрх 301 Downloader-г нээнэ үү.</span>
+                <button onclick="document.getElementById('openCookiesBtn').click()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-md shadow-amber-600/30 transition-all cursor-pointer">
+                    <i class="fa-solid fa-cookie-bite"></i>
+                    <span>Cookies оруулах</span>
                 </button>
             </div>
         `;

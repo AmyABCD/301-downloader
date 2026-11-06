@@ -127,11 +127,11 @@ def health_check():
 
 
 @app.get("/api/debug-extract")
-def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
+def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0", use_cookies: bool = True):
     import traceback
     t0 = time.time()
-    opts = get_ydl_base_opts(url=url, use_cookies=False)
-    opts['socket_timeout'] = 8
+    opts = get_ydl_base_opts(url=url, use_cookies=use_cookies)
+    opts['socket_timeout'] = 10
     opts['retries'] = 0
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -437,9 +437,13 @@ def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
+    node_bin = shutil.which("node")
     deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
-    if os.path.exists(deno_bin):
+    if node_bin and os.path.exists(node_bin):
+        opts['js_runtimes'] = {'node': {'path': node_bin}}
+    elif os.path.exists(deno_bin):
         opts['js_runtimes'] = {'deno': {'path': deno_bin}}
+
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
 
@@ -447,13 +451,17 @@ def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any
     if is_youtube:
         if has_cookies:
             opts['cookiefile'] = COOKIE_FILE
-        # Skip blocked webpage HTML download completely to bypass datacenter IP firewalls!
-        opts['extractor_args'] = {
-            'youtube': {
-                'player_skip': ['webpage', 'configs'],
-                'player_client': ['visionos', 'android']
+            opts['extractor_args'] = {
+                'youtube': {
+                    'player_client': ['web', 'android']
+                }
             }
-        }
+        else:
+            opts['extractor_args'] = {
+                'youtube': {
+                    'player_client': ['web', 'android']
+                }
+            }
 
     return opts
 
@@ -513,18 +521,7 @@ async def analyze_url(req: AnalyzeRequest):
     # Run extraction in thread to avoid blocking asyncio event loop
     loop = asyncio.get_event_loop()
     def extract():
-        # 1. Clean attempt without cookies: lightning fast (~1.7s), gives 48 formats up to 4K
-        opts = get_ydl_base_opts(url=url, use_cookies=False)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                res = ydl.extract_info(url, download=False)
-                fmts = res.get("formats", [])
-                if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
-                    return res
-        except Exception:
-            pass
-
-        # 2. Try with cookies if clean attempt failed (for private, age-restricted, or member videos)
+        # 1. Try with cookies first if available
         if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
             try:
                 opts_c = get_ydl_base_opts(url=url, use_cookies=True)
@@ -535,6 +532,17 @@ async def analyze_url(req: AnalyzeRequest):
                         return res
             except Exception:
                 pass
+
+        # 2. Try clean extraction without cookies
+        try:
+            opts_clean = get_ydl_base_opts(url=url, use_cookies=False)
+            with yt_dlp.YoutubeDL(opts_clean) as ydl:
+                res = ydl.extract_info(url, download=False)
+                fmts = res.get("formats", [])
+                if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
+                    return res
+        except Exception:
+            pass
 
         # 3. Fallback: alternative clients
         opts_alt = get_ydl_base_opts(url=url, use_cookies=False)
@@ -742,7 +750,8 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
             format_selector = f'bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/b/best'
         postprocessors = []
 
-    base = get_ydl_base_opts(url=url, use_cookies=False)
+    use_cookies_first = bool(os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0)
+    base = get_ydl_base_opts(url=url, use_cookies=use_cookies_first)
     ydl_opts: Dict[str, Any] = {
         **base,
         'skip_download': False,
@@ -766,29 +775,29 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
                 job["thumbnail"] = info.get("thumbnail")
         except Exception as first_down_err:
             success = False
-            # Fallback 1: try with cookies if available (for private/age-restricted)
-            if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
-                try:
-                    ydl_opts_c = {
-                        **get_ydl_base_opts(url=url, use_cookies=True),
-                        'skip_download': False,
-                        'format': format_selector,
-                        'outtmpl': outtmpl,
-                        'progress_hooks': [progress_hook],
-                        'postprocessor_hooks': [postprocessor_hook],
-                        'windowsfilenames': True,
-                    }
-                    if postprocessors:
-                        ydl_opts_c['postprocessors'] = postprocessors
-                    if format_type != "audio":
-                        ydl_opts_c['merge_output_format'] = 'mp4'
-                    with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
-                        info = ydl_c.extract_info(url, download=True)
-                        job["video_title"] = info.get("title") or "Файл"
-                        job["thumbnail"] = info.get("thumbnail")
-                        success = True
-                except Exception:
-                    pass
+            # Fallback 1: try alternative cookie state
+            alt_cookie_state = not use_cookies_first
+            try:
+                ydl_opts_c = {
+                    **get_ydl_base_opts(url=url, use_cookies=alt_cookie_state),
+                    'skip_download': False,
+                    'format': format_selector,
+                    'outtmpl': outtmpl,
+                    'progress_hooks': [progress_hook],
+                    'postprocessor_hooks': [postprocessor_hook],
+                    'windowsfilenames': True,
+                }
+                if postprocessors:
+                    ydl_opts_c['postprocessors'] = postprocessors
+                if format_type != "audio":
+                    ydl_opts_c['merge_output_format'] = 'mp4'
+                with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
+                    info = ydl_c.extract_info(url, download=True)
+                    job["video_title"] = info.get("title") or "Файл"
+                    job["thumbnail"] = info.get("thumbnail")
+                    success = True
+            except Exception:
+                pass
 
             if not success:
                 # Fallback 2: android/tv client fallback
