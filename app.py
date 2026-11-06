@@ -359,10 +359,14 @@ def sanitize_filename(filename: str) -> str:
     return clean if clean else "download"
 
 
-def format_duration(seconds: Optional[int]) -> str:
+def format_duration(seconds: Any) -> str:
     if not seconds:
         return "--:--"
-    m, s = divmod(seconds, 60)
+    try:
+        sec = int(float(seconds))
+    except (ValueError, TypeError):
+        return "--:--"
+    m, s = divmod(sec, 60)
     h, m = divmod(m, 60)
     if h > 0:
         return f"{h:02d}:{m:02d}:{s:02d}"
