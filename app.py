@@ -87,6 +87,43 @@ def health_check():
     return {"status": "ok", "service": "301 Downloader", "time": time.time()}
 
 
+@app.get("/api/test-extract")
+def test_extract(client: str = "visionos"):
+    import subprocess
+    report = {}
+    
+    # Check Deno
+    try:
+        deno_p = shutil.which("deno") or "/root/.deno/bin/deno"
+        res = subprocess.run([deno_p, "--version"], capture_output=True, text=True, timeout=3)
+        report["deno"] = {"path": deno_p, "output": res.stdout.strip()}
+    except Exception as e:
+        report["deno"] = {"error": str(e)}
+
+    # Test pure extraction (no impersonate, no cookies)
+    t0 = time.time()
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'skip_download': True,
+            'socket_timeout': 5,
+            'retries': 0,
+            'extractor_retries': 0,
+            'extractor_args': {'youtube': {'player_client': [client]}},
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            inf = ydl.extract_info("https://www.youtube.com/watch?v=7arUzCQDTs0", download=False)
+            report["pure_extract"] = {
+                "time": round(time.time() - t0, 2),
+                "title": inf.get("title"),
+                "fmts_count": len(inf.get("formats", []))
+            }
+    except Exception as e:
+        report["pure_extract"] = {"time": round(time.time() - t0, 2), "error": str(e)}
+
+    return report
+
+
 class AnalyzeRequest(BaseModel):
     url: str
 
