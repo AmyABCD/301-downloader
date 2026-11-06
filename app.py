@@ -320,17 +320,19 @@ except Exception:
 
 
 def get_ydl_base_opts() -> Dict[str, Any]:
+    has_cookies = os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
+    clients = ['web', 'mweb', 'ios', 'android'] if has_cookies else ['web', 'mweb', 'tv', 'web_safari', 'ios']
     opts = {
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 20,
+        'socket_timeout': 25,
         'source_address': '0.0.0.0',
         'extractor_args': {
             'youtube': {
-                'player-client': ['mweb', 'tv', 'web_safari', 'ios', 'web'],
+                'player-client': clients,
             },
             'youtubepot-bgutilscript': {
                 'server_home': ['/root/bgutil-ytdlp-pot-provider/server']
@@ -348,7 +350,7 @@ def get_ydl_base_opts() -> Dict[str, Any]:
         opts['impersonate'] = CHROME_TARGET
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
-    if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+    if has_cookies:
         opts['cookiefile'] = COOKIE_FILE
     return opts
 
@@ -361,9 +363,31 @@ async def save_cookies(payload: CookiePayload):
     try:
         with open(COOKIE_FILE, "w", encoding="utf-8") as f:
             f.write(text)
+
+        # Auto sync across regions
+        is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
+        sister_target = "https://three01-downloader-eu.onrender.com/api/admin/cookies" if not is_eu else "https://three01-downloader.onrender.com/api/admin/cookies"
+        try:
+            req = urllib.request.Request(
+                sister_target,
+                data=json.dumps({"cookies": text}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
         return {"status": "ok", "message": "Cookies амжилттай хадгалагдлаа! Одоо YouTube видеонууд шууд татагдана."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cookies хадгалахад алдаа гарлаа: {str(e)}")
+
+
+@app.get("/api/admin/cookies-content")
+def get_cookies_content():
+    if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+        with open(COOKIE_FILE, "r", encoding="utf-8") as f:
+            return {"status": "ok", "content": f.read()}
+    return {"status": "empty", "content": ""}
 
 
 @app.get("/api/admin/cookies-status")
