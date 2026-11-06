@@ -126,6 +126,31 @@ def health_check():
     return {"status": "ok", "service": "301 Downloader", "time": time.time()}
 
 
+@app.get("/api/debug-extract")
+def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
+    import traceback
+    t0 = time.time()
+    opts = get_ydl_base_opts(url=url, use_cookies=False)
+    opts['socket_timeout'] = 8
+    opts['retries'] = 0
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            res = ydl.extract_info(url, download=False)
+            return {
+                "status": "success",
+                "time": round(time.time() - t0, 2),
+                "title": res.get("title"),
+                "formats": len(res.get("formats", []))
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "time": round(time.time() - t0, 2),
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
 class CheckOAuthRequest(BaseModel):
     device_code: str
 
@@ -515,19 +540,7 @@ async def analyze_url(req: AnalyzeRequest):
         info = await loop.run_in_executor(None, extract)
     except Exception as e:
         err_msg = str(e)
-        is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
-        # Cross-region failover: if US server fails, proxy immediately to EU server
-        if not is_eu:
-            try:
-                proxy_req = urllib.request.Request(
-                    "https://three01-downloader-eu.onrender.com/api/analyze",
-                    data=json.dumps({"url": url}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"}
-                )
-                with urllib.request.urlopen(proxy_req, timeout=20) as resp:
-                    return json.loads(resp.read().decode())
-            except Exception:
-                pass
+        # Clean direct error handling without 20s lag
 
         if "facebook" in url.lower() and ("unsupported" in err_msg.lower() or "cannot parse" in err_msg.lower() or "login" in err_msg.lower()):
             detail = "Facebook-ийн энэ бичлэг нь хаалттай эсвэл түр хамгаалагдсан байна. Facebook дээрх бичлэгийн шууд холбоосыг (Watch эсвэл Reel ID) оруулна уу."
