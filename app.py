@@ -387,13 +387,6 @@ def clean_media_url(url: str) -> str:
     return u
 
 
-try:
-    from yt_dlp.networking.impersonate import ImpersonateTarget
-    CHROME_TARGET = ImpersonateTarget.from_str('chrome-136')
-except Exception:
-    CHROME_TARGET = None
-
-
 def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any]:
     has_cookies = use_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
     opts = {
@@ -402,7 +395,7 @@ def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 6,
+        'socket_timeout': 8,
         'retries': 1,
         'fragment_retries': 1,
         'extractor_retries': 0,
@@ -418,8 +411,6 @@ def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any
     deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
     if os.path.exists(deno_bin):
         opts['js_runtimes'] = {'deno': {'path': deno_bin}}
-    if CHROME_TARGET:
-        opts['impersonate'] = CHROME_TARGET
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
 

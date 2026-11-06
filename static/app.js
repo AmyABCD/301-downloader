@@ -196,8 +196,9 @@ function onUrlInput() {
 
 
 function showError(msg) {
-    const isBotOrAuth = msg.includes("Cookies") || msg.includes("bot") || msg.includes("датацентр") || msg.includes("Sign in") || msg.includes("aborted") || msg.includes("хугацаа");
-    if (isBotOrAuth) {
+    if (msg.includes("aborted") || msg.includes("хугацаа") || msg.includes("timeout") || msg.includes("Timeout")) {
+        errorMessage.textContent = "Сервер түр ачаалалтай байна. Та дахин нэг удаа 'Шинжлэх' дарна уу.";
+    } else if (msg.includes("Sign in to confirm you're not a bot") || msg.includes("botwall")) {
         errorMessage.innerHTML = `
             <span>YouTube-ээс татахад серверт нэг удаагийн Google баталгаажуулалт шаардлагатай байна.</span>
             <div class="mt-2.5 pt-2 border-t border-red-500/20 flex flex-wrap items-center justify-between gap-2">
