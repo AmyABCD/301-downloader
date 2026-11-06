@@ -48,6 +48,20 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 COOKIE_FILE = os.path.join(BASE_DIR, "cookies.txt")
 SECRET_COOKIE_FILE = "/etc/secrets/cookies.txt"
 
+CACHE_DIR = os.path.join(BASE_DIR, ".cache")
+OAUTH_TOKEN_FILE = os.path.join(BASE_DIR, "oauth2_token.json")
+SECRET_OAUTH_TOKEN_FILE = "/etc/secrets/oauth2_token.json"
+
+if os.path.exists(SECRET_OAUTH_TOKEN_FILE) and os.path.getsize(SECRET_OAUTH_TOKEN_FILE) > 0:
+    OAUTH_TOKEN_FILE = SECRET_OAUTH_TOKEN_FILE
+elif os.environ.get("YOUTUBE_OAUTH_TOKEN"):
+    try:
+        with open(OAUTH_TOKEN_FILE, "w", encoding="utf-8") as f:
+            f.write(os.environ.get("YOUTUBE_OAUTH_TOKEN").strip())
+        print("Loaded OAuth token from YOUTUBE_OAUTH_TOKEN environment variable!")
+    except Exception as e:
+        print("Error writing oauth token from env:", e)
+
 # If secret file exists in Render, prioritize it
 if os.path.exists(SECRET_COOKIE_FILE) and os.path.getsize(SECRET_COOKIE_FILE) > 0:
     COOKIE_FILE = SECRET_COOKIE_FILE
@@ -62,6 +76,31 @@ elif os.environ.get("YOUTUBE_COOKIES"):
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+GOOGLE_OAUTH_CLIENT_ID = '861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com'
+GOOGLE_OAUTH_CLIENT_SECRET = 'SboVhoG9s0rNafixCSGGKXAT'
+GOOGLE_OAUTH_SCOPES = 'https://gdata.youtube.com https://www.googleapis.com/auth/youtube'
+
+def sync_oauth_token_to_cache(token_data: Dict[str, Any]):
+    """Syncs OAuth2 token_data into yt-dlp cache on disk."""
+    try:
+        with yt_dlp.YoutubeDL({'cachedir': CACHE_DIR}) as ydl:
+            ydl.cache.store('youtube-oauth2', 'token_data', token_data)
+        with yt_dlp.YoutubeDL() as ydl_def:
+            ydl_def.cache.store('youtube-oauth2', 'token_data', token_data)
+    except Exception as e:
+        print("Error syncing OAuth token to ydl cache:", e)
+
+# Sync token if file exists
+if os.path.exists(OAUTH_TOKEN_FILE) and os.path.getsize(OAUTH_TOKEN_FILE) > 0:
+    try:
+        with open(OAUTH_TOKEN_FILE, "r", encoding="utf-8") as f:
+            _tdata = json.load(f)
+            sync_oauth_token_to_cache(_tdata)
+            print("Loaded and synced YouTube OAuth token on startup!")
+    except Exception as e:
+        print("Error loading oauth token on startup:", e)
 
 app = FastAPI(title="301 Downloader", version="1.0.0")
 
@@ -87,49 +126,110 @@ def health_check():
     return {"status": "ok", "service": "301 Downloader", "time": time.time()}
 
 
-@app.get("/api/test-extract")
-def test_extract(client: str = "visionos", impersonate: bool = True):
-    import subprocess
-    report = {}
-    
-    t0 = time.time()
+class CheckOAuthRequest(BaseModel):
+    device_code: str
+
+
+@app.get("/api/oauth/status")
+def get_oauth_status():
+    has_oauth = os.path.exists(OAUTH_TOKEN_FILE) and os.path.getsize(OAUTH_TOKEN_FILE) > 0
+    return {
+        "authorized": has_oauth,
+        "message": "YouTube холбогдсон байна (24/7 таталт идэвхтэй) ✅" if has_oauth else "YouTube холбогдоогүй байна"
+    }
+
+
+@app.post("/api/oauth/start")
+def start_oauth_flow():
+    """Requests a Google TV OAuth2 device code."""
     try:
-        ydl_opts = {
-            'quiet': True,
-            'skip_download': True,
-            'socket_timeout': 10,
-            'retries': 1,
-            'extractor_retries': 1,
-            'extractor_args': {'youtube': {'player_client': [client]}},
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
-            }
-        }
-        if impersonate and CHROME_TARGET:
-            ydl_opts['impersonate'] = CHROME_TARGET
-
-        deno_p = shutil.which("deno") or "/root/.deno/bin/deno"
-        if os.path.exists(deno_p):
-            ydl_opts['js_runtimes'] = {'deno': {'path': deno_p}}
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            inf = ydl.extract_info("https://www.youtube.com/watch?v=7arUzCQDTs0", download=False)
-            report["result"] = {
-                "client": client,
-                "impersonate": impersonate,
-                "time": round(time.time() - t0, 2),
-                "title": inf.get("title"),
-                "fmts_count": len(inf.get("formats", [])),
-                "formats": [
-                    {"id": f.get("format_id"), "ext": f.get("ext"), "res": f.get("resolution"), "vcodec": f.get("vcodec"), "acodec": f.get("acodec")}
-                    for f in inf.get("formats", [])[:5]
-                ]
+        req = urllib.request.Request(
+            'https://www.youtube.com/o/oauth2/device/code',
+            data=json.dumps({
+                'client_id': GOOGLE_OAUTH_CLIENT_ID,
+                'scope': GOOGLE_OAUTH_SCOPES,
+                'device_id': uuid.uuid4().hex,
+                'device_model': 'ytlr::'
+            }).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return {
+                "status": "ok",
+                "user_code": data.get("user_code"),
+                "verification_url": data.get("verification_url", "https://www.google.com/device"),
+                "device_code": data.get("device_code"),
+                "interval": data.get("interval", 5),
+                "expires_in": data.get("expires_in", 1800)
             }
     except Exception as e:
-        report["result"] = {"client": client, "impersonate": impersonate, "time": round(time.time() - t0, 2), "error": str(e)}
+        raise HTTPException(status_code=500, detail=f"OAuth2 код авахад алдаа гарлаа: {str(e)}")
 
-    return report
+
+@app.post("/api/oauth/poll")
+def poll_oauth_token(payload: CheckOAuthRequest):
+    """Polls Google token endpoint to check if user authorized."""
+    req = urllib.request.Request(
+        'https://www.youtube.com/o/oauth2/token',
+        data=json.dumps({
+            'client_id': GOOGLE_OAUTH_CLIENT_ID,
+            'client_secret': GOOGLE_OAUTH_CLIENT_SECRET,
+            'device_code': payload.device_code,
+            'grant_type': 'urn:ietf:params:oauth:grant-type:device_code'
+        }).encode('utf-8'),
+        headers={'Content-Type': 'application/json'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            token_resp = json.loads(resp.read().decode('utf-8'))
+            if 'access_token' in token_resp:
+                import datetime
+                token_data = {
+                    'access_token': token_resp['access_token'],
+                    'expires': datetime.datetime.now(datetime.timezone.utc).timestamp() + token_resp.get('expires_in', 3600),
+                    'refresh_token': token_resp.get('refresh_token'),
+                    'token_type': token_resp.get('token_type', 'Bearer')
+                }
+                # Save to OAUTH_TOKEN_FILE
+                with open(OAUTH_TOKEN_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(token_data, f, indent=2)
+
+                # Store into ydl cache
+                sync_oauth_token_to_cache(token_data)
+
+                # Cross-region sync
+                is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
+                sister = "https://three01-downloader.onrender.com" if is_eu else "https://three01-downloader-eu.onrender.com"
+                try:
+                    sync_req = urllib.request.Request(
+                        f"{sister}/api/oauth/save-token",
+                        data=json.dumps(token_data).encode("utf-8"),
+                        headers={"Content-Type": "application/json"}
+                    )
+                    urllib.request.urlopen(sync_req, timeout=5)
+                except Exception:
+                    pass
+
+                return {"status": "success", "message": "Google Account амжилттай холбогдлоо! Сервер 24/7 найдвартай ажиллана."}
+            else:
+                return {"status": "pending"}
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='replace')
+        if "authorization_pending" in err_body:
+            return {"status": "pending"}
+        return {"status": "error", "detail": err_body}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@app.post("/api/oauth/save-token")
+def save_oauth_token_direct(token_data: Dict[str, Any]):
+    """Receives synced OAuth token from sister server."""
+    with open(OAUTH_TOKEN_FILE, 'w', encoding='utf-8') as f:
+        json.dump(token_data, f, indent=2)
+    sync_oauth_token_to_cache(token_data)
+    return {"status": "ok"}
 
 
 class AnalyzeRequest(BaseModel):
@@ -295,6 +395,7 @@ except Exception:
 
 
 def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
+    has_oauth = os.path.exists(OAUTH_TOKEN_FILE) and os.path.getsize(OAUTH_TOKEN_FILE) > 0
     has_cookies = use_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
     opts = {
         'quiet': True,
@@ -308,6 +409,7 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
         'extractor_retries': 1,
         'ignore_no_formats_error': True,
         'check_formats': None,
+        'cachedir': CACHE_DIR,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
@@ -321,7 +423,11 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
 
-    if has_cookies:
+    if has_oauth:
+        opts['username'] = 'oauth2'
+        opts['password'] = ''
+        opts['extractor_args'] = {'youtube': {'player_client': ['tv', 'mweb']}}
+    elif has_cookies:
         opts['cookiefile'] = COOKIE_FILE
         # For authenticated YouTube requests, tv and mweb support cookies and avoid web SABR restrictions
         opts['extractor_args'] = {'youtube': {'player_client': ['tv', 'mweb', 'web_safari']}}

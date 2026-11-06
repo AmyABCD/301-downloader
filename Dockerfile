@@ -13,7 +13,7 @@ WORKDIR /app
 # Install Python packages & latest yt-dlp + ejs solver + curl-cffi for browser TLS impersonation
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --upgrade yt-dlp yt-dlp-ejs curl-cffi
+    pip install --no-cache-dir --upgrade yt-dlp yt-dlp-ejs yt-dlp-youtube-oauth2 curl-cffi
 
 # Copy source code
 COPY . .

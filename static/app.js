@@ -942,3 +942,119 @@ if (saveCookiesBtn) {
 checkCookiesStatus();
 
 
+// --- YouTube 24/7 Google Device OAuth2 Management ---
+const openOAuthBtn = document.getElementById("openOAuthBtn");
+const closeOAuthBtn = document.getElementById("closeOAuthBtn");
+const oauthModal = document.getElementById("oauthModal");
+const oauthStatusDot = document.getElementById("oauthStatusDot");
+const oauthModalStatusText = document.getElementById("oauthModalStatusText");
+const oauthLoadingBox = document.getElementById("oauthLoadingBox");
+const oauthCodeBox = document.getElementById("oauthCodeBox");
+const oauthSuccessBox = document.getElementById("oauthSuccessBox");
+const oauthUserCode = document.getElementById("oauthUserCode");
+const copyUserCodeBtn = document.getElementById("copyUserCodeBtn");
+const oauthVerifyLink = document.getElementById("oauthVerifyLink");
+
+let oauthPollInterval = null;
+
+async function checkOAuthStatus() {
+    try {
+        const res = await fetch("/api/oauth/status");
+        if (res.ok) {
+            const data = await res.json();
+            if (data.authorized) {
+                if (oauthStatusDot) oauthStatusDot.className = "w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400";
+                if (oauthModalStatusText) oauthModalStatusText.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>Холбогдсон (24/7 Идэвхтэй)</span>`;
+            } else {
+                if (oauthStatusDot) oauthStatusDot.className = "w-2 h-2 rounded-full bg-red-400 animate-pulse";
+                if (oauthModalStatusText) oauthModalStatusText.innerHTML = `<span class="text-amber-400 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Холбогдоогүй</span>`;
+            }
+            return data.authorized;
+        }
+    } catch (e) {
+        console.error("OAuth status check error:", e);
+    }
+    return false;
+}
+
+async function startOAuthFlow() {
+    if (oauthPollInterval) clearInterval(oauthPollInterval);
+    if (oauthLoadingBox) oauthLoadingBox.classList.remove("hidden");
+    if (oauthCodeBox) oauthCodeBox.classList.add("hidden");
+    if (oauthSuccessBox) oauthSuccessBox.classList.add("hidden");
+
+    const isAuth = await checkOAuthStatus();
+    if (isAuth) {
+        if (oauthLoadingBox) oauthLoadingBox.classList.add("hidden");
+        if (oauthSuccessBox) oauthSuccessBox.classList.remove("hidden");
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/oauth/start", { method: "POST" });
+        const data = await res.json();
+        if (res.ok && data.user_code) {
+            if (oauthLoadingBox) oauthLoadingBox.classList.add("hidden");
+            if (oauthCodeBox) oauthCodeBox.classList.remove("hidden");
+            if (oauthUserCode) oauthUserCode.textContent = data.user_code;
+            if (oauthVerifyLink) oauthVerifyLink.href = data.verification_url || "https://www.google.com/device";
+
+            // Start polling every interval seconds
+            const intervalSec = (data.interval || 5) * 1000;
+            oauthPollInterval = setInterval(async () => {
+                try {
+                    const pollRes = await fetch("/api/oauth/poll", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ device_code: data.device_code })
+                    });
+                    const pollData = await pollRes.json();
+                    if (pollData.status === "success") {
+                        clearInterval(oauthPollInterval);
+                        if (oauthCodeBox) oauthCodeBox.classList.add("hidden");
+                        if (oauthSuccessBox) oauthSuccessBox.classList.remove("hidden");
+                        checkOAuthStatus();
+                    }
+                } catch (err) {
+                    console.error("OAuth polling error:", err);
+                }
+            }, intervalSec);
+        } else {
+            if (oauthLoadingBox) oauthLoadingBox.innerHTML = `<p class="text-xs text-red-400">Код авахад алдаа: ${data.detail || "Тодорхойгүй"}</p>`;
+        }
+    } catch (e) {
+        if (oauthLoadingBox) oauthLoadingBox.innerHTML = `<p class="text-xs text-red-400">Сүлжээний алдаа: ${e.message}</p>`;
+    }
+}
+
+if (openOAuthBtn) {
+    openOAuthBtn.addEventListener("click", () => {
+        if (oauthModal) oauthModal.classList.remove("hidden");
+        startOAuthFlow();
+    });
+}
+
+if (closeOAuthBtn) {
+    closeOAuthBtn.addEventListener("click", () => {
+        if (oauthPollInterval) clearInterval(oauthPollInterval);
+        if (oauthModal) oauthModal.classList.add("hidden");
+    });
+}
+
+if (copyUserCodeBtn) {
+    copyUserCodeBtn.addEventListener("click", () => {
+        const code = oauthUserCode ? oauthUserCode.textContent.trim() : "";
+        if (code && code !== "----") {
+            navigator.clipboard.writeText(code).then(() => {
+                copyUserCodeBtn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i>`;
+                setTimeout(() => {
+                    copyUserCodeBtn.innerHTML = `<i class="fa-regular fa-copy"></i>`;
+                }, 1500);
+            });
+        }
+    });
+}
+
+checkOAuthStatus();
+
+
