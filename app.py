@@ -330,6 +330,8 @@ def get_ydl_base_opts() -> Dict[str, Any]:
         'noplaylist': True,
         'socket_timeout': 25,
         'source_address': '0.0.0.0',
+        'ignore_no_formats_error': True,
+        'check_formats': None,
         'extractor_args': {
             'youtube': {
                 'player-client': clients,
