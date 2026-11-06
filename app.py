@@ -394,7 +394,7 @@ except Exception:
     CHROME_TARGET = None
 
 
-def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
+def get_ydl_base_opts(url: str = "", use_cookies: bool = True) -> Dict[str, Any]:
     has_oauth = os.path.exists(OAUTH_TOKEN_FILE) and os.path.getsize(OAUTH_TOKEN_FILE) > 0
     has_cookies = use_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
     opts = {
@@ -403,7 +403,7 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 10,
+        'socket_timeout': 15,
         'retries': 2,
         'fragment_retries': 2,
         'extractor_retries': 1,
@@ -423,17 +423,17 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
 
-    if has_oauth:
-        opts['username'] = 'oauth2'
-        opts['password'] = ''
-        opts['extractor_args'] = {'youtube': {'player_client': ['tv', 'mweb']}}
-    elif has_cookies:
-        opts['cookiefile'] = COOKIE_FILE
-        # For authenticated YouTube requests, tv and mweb support cookies and avoid web SABR restrictions
-        opts['extractor_args'] = {'youtube': {'player_client': ['tv', 'mweb', 'web_safari']}}
-    else:
-        # For clean YouTube sessions, visionos & android yield 45+ formats up to 4K without botwall or SABR
-        opts['extractor_args'] = {'youtube': {'player_client': ['visionos', 'android']}}
+    is_youtube = bool(url and ("youtube.com" in url or "youtu.be" in url))
+    if is_youtube:
+        if has_cookies:
+            opts['cookiefile'] = COOKIE_FILE
+            opts['extractor_args'] = {'youtube': {'player_client': ['tv', 'web', 'mweb']}}
+        elif has_oauth:
+            opts['username'] = 'oauth2'
+            opts['password'] = ''
+            opts['extractor_args'] = {'youtube': {'player_client': ['tv']}}
+        else:
+            opts['extractor_args'] = {'youtube': {'player_client': ['visionos', 'android']}}
 
     return opts
 
@@ -493,8 +493,8 @@ async def analyze_url(req: AnalyzeRequest):
     # Run extraction in thread to avoid blocking asyncio event loop
     loop = asyncio.get_event_loop()
     def extract():
-        # 1. Clean attempt without cookies (fastest, full resolutions up to 4K/1080p, bypasses account SABR experiment)
-        opts = get_ydl_base_opts(use_cookies=False)
+        # 1. Main attempt: with cookies or best platform defaults
+        opts = get_ydl_base_opts(url=url, use_cookies=True)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 res = ydl.extract_info(url, download=False)
@@ -504,21 +504,23 @@ async def analyze_url(req: AnalyzeRequest):
         except Exception:
             pass
 
-        # 2. Try with cookies if available (for private, age-restricted, or member videos)
-        if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
-            try:
-                opts_c = get_ydl_base_opts(use_cookies=True)
-                with yt_dlp.YoutubeDL(opts_c) as ydl_c:
-                    res = ydl_c.extract_info(url, download=False)
-                    fmts = res.get("formats", [])
-                    if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
-                        return res
-            except Exception:
-                pass
+        # 2. Secondary attempt: fallback without cookies
+        try:
+            opts_clean = get_ydl_base_opts(url=url, use_cookies=False)
+            with yt_dlp.YoutubeDL(opts_clean) as ydl_clean:
+                res = ydl_clean.extract_info(url, download=False)
+                fmts = res.get("formats", [])
+                if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
+                    return res
+        except Exception:
+            pass
 
-        # 3. Fallback: mobile and TV clients (android, ios, tv)
-        opts_alt = get_ydl_base_opts(use_cookies=False)
-        opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'ios', 'tv']}}
+        # 3. Last fallback: mobile & alternative clients
+        opts_alt = get_ydl_base_opts(url=url, use_cookies=False)
+        opts_alt.pop('username', None)
+        opts_alt.pop('password', None)
+        if "youtube" in url.lower() or "youtu.be" in url.lower():
+            opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'ios', 'tv']}}
         with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
             return ydl_alt.extract_info(url, download=False)
 
@@ -540,8 +542,10 @@ async def analyze_url(req: AnalyzeRequest):
             except Exception:
                 pass
 
-        if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
-            detail = "YouTube-ээс татахад серверт нэг удаагийн Google холболт шаардлагатай. Баруун дээд талын 'YouTube 24/7' товчоор 1 удаа холбоно уу."
+        if "facebook" in url.lower() and ("unsupported" in err_msg.lower() or "cannot parse" in err_msg.lower() or "login" in err_msg.lower()):
+            detail = "Facebook-ийн энэ бичлэг нь хаалттай эсвэл түр хамгаалагдсан байна. Facebook дээрх бичлэгийн шууд холбоосыг (Watch эсвэл Reel ID) оруулна уу."
+        elif "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
+            detail = "YouTube хандалтыг шалгаж байна. Серверт Cookies эсвэл Google холболт оруулснаар 24/7 тасралтгүй ажиллана."
         elif "Private video" in err_msg or "login" in err_msg.lower():
             detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
         elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
@@ -729,7 +733,7 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
             format_selector = f'bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/b/best'
         postprocessors = []
 
-    base = get_ydl_base_opts(use_cookies=False)
+    base = get_ydl_base_opts(url=url, use_cookies=True)
     ydl_opts: Dict[str, Any] = {
         **base,
         'skip_download': False,
@@ -753,33 +757,10 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
                 job["thumbnail"] = info.get("thumbnail")
         except Exception as first_down_err:
             success = False
-            # Fallback 1: with cookies if available (for private/age-restricted)
-            if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
-                try:
-                    ydl_opts_c = {
-                        **get_ydl_base_opts(use_cookies=True),
-                        'skip_download': False,
-                        'format': format_selector,
-                        'outtmpl': outtmpl,
-                        'progress_hooks': [progress_hook],
-                        'postprocessor_hooks': [postprocessor_hook],
-                        'windowsfilenames': True,
-                    }
-                    if postprocessors:
-                        ydl_opts_c['postprocessors'] = postprocessors
-                    if format_type != "audio":
-                        ydl_opts_c['merge_output_format'] = 'mp4'
-                    with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
-                        info = ydl_c.extract_info(url, download=True)
-                        job["video_title"] = info.get("title") or "Файл"
-                        job["thumbnail"] = info.get("thumbnail")
-                        success = True
-                except Exception:
-                    pass
-            if not success:
-                # Fallback 2: android/tv client fallback
-                ydl_opts_alt = {
-                    **get_ydl_base_opts(use_cookies=False),
+            # Fallback 1: clean attempt without cookies
+            try:
+                ydl_opts_c = {
+                    **get_ydl_base_opts(url=url, use_cookies=False),
                     'skip_download': False,
                     'format': format_selector,
                     'outtmpl': outtmpl,
@@ -787,7 +768,33 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
                     'postprocessor_hooks': [postprocessor_hook],
                     'windowsfilenames': True,
                 }
-                ydl_opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'tv']}}
+                if postprocessors:
+                    ydl_opts_c['postprocessors'] = postprocessors
+                if format_type != "audio":
+                    ydl_opts_c['merge_output_format'] = 'mp4'
+                with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
+                    info = ydl_c.extract_info(url, download=True)
+                    job["video_title"] = info.get("title") or "Файл"
+                    job["thumbnail"] = info.get("thumbnail")
+                    success = True
+            except Exception:
+                pass
+
+            if not success:
+                # Fallback 2: android/tv client fallback
+                ydl_opts_alt = {
+                    **get_ydl_base_opts(url=url, use_cookies=False),
+                    'skip_download': False,
+                    'format': format_selector,
+                    'outtmpl': outtmpl,
+                    'progress_hooks': [progress_hook],
+                    'postprocessor_hooks': [postprocessor_hook],
+                    'windowsfilenames': True,
+                }
+                ydl_opts_alt.pop('username', None)
+                ydl_opts_alt.pop('password', None)
+                if "youtube" in url.lower() or "youtu.be" in url.lower():
+                    ydl_opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'tv']}}
                 if postprocessors:
                     ydl_opts_alt['postprocessors'] = postprocessors
                 if format_type != "audio":
