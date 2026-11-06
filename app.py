@@ -88,38 +88,38 @@ def health_check():
 
 
 @app.get("/api/test-extract")
-def test_extract(client: str = "visionos"):
+def test_extract(client: str = "tv", with_cookies: bool = True):
     import subprocess
     report = {}
     
-    # Check Deno
-    try:
-        deno_p = shutil.which("deno") or "/root/.deno/bin/deno"
-        res = subprocess.run([deno_p, "--version"], capture_output=True, text=True, timeout=3)
-        report["deno"] = {"path": deno_p, "output": res.stdout.strip()}
-    except Exception as e:
-        report["deno"] = {"error": str(e)}
-
-    # Test pure extraction (no impersonate, no cookies)
     t0 = time.time()
     try:
         ydl_opts = {
             'quiet': True,
             'skip_download': True,
-            'socket_timeout': 5,
+            'socket_timeout': 8,
             'retries': 0,
             'extractor_retries': 0,
             'extractor_args': {'youtube': {'player_client': [client]}},
         }
+        if with_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+            ydl_opts['cookiefile'] = COOKIE_FILE
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             inf = ydl.extract_info("https://www.youtube.com/watch?v=7arUzCQDTs0", download=False)
-            report["pure_extract"] = {
+            report["result"] = {
+                "client": client,
+                "with_cookies": with_cookies,
                 "time": round(time.time() - t0, 2),
                 "title": inf.get("title"),
-                "fmts_count": len(inf.get("formats", []))
+                "fmts_count": len(inf.get("formats", [])),
+                "formats": [
+                    {"id": f.get("format_id"), "ext": f.get("ext"), "res": f.get("resolution"), "vcodec": f.get("vcodec"), "acodec": f.get("acodec")}
+                    for f in inf.get("formats", [])[:5]
+                ]
             }
     except Exception as e:
-        report["pure_extract"] = {"time": round(time.time() - t0, 2), "error": str(e)}
+        report["result"] = {"client": client, "with_cookies": with_cookies, "time": round(time.time() - t0, 2), "error": str(e)}
 
     return report
 
