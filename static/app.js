@@ -196,14 +196,15 @@ function onUrlInput() {
 
 
 function showError(msg) {
-    if (msg.includes("Cookies") || msg.includes("bot") || msg.includes("датацентр") || msg.includes("Sign in")) {
+    const isBotOrAuth = msg.includes("Cookies") || msg.includes("bot") || msg.includes("датацентр") || msg.includes("Sign in") || msg.includes("aborted") || msg.includes("хугацаа");
+    if (isBotOrAuth) {
         errorMessage.innerHTML = `
-            <span>${msg}</span>
+            <span>YouTube-ээс татахад серверт нэг удаагийн Google баталгаажуулалт шаардлагатай байна.</span>
             <div class="mt-2.5 pt-2 border-t border-red-500/20 flex flex-wrap items-center justify-between gap-2">
-                <span class="text-xs text-amber-300 font-medium">Серверт 1 удаа Cookies хадгалахад 24/7 тасралтгүй ажиллана:</span>
-                <button onclick="document.getElementById('openCookiesBtn').click()" class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 shadow transition-all cursor-pointer">
-                    <i class="fa-solid fa-cookie-bite"></i>
-                    <span>Cookies оруулах</span>
+                <span class="text-xs text-red-200 font-medium">Компьютер унтраатай байсан ч 24/7 татахын тулд:</span>
+                <button onclick="document.getElementById('openOAuthBtn').click()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-md shadow-red-600/30 transition-all cursor-pointer">
+                    <i class="fa-brands fa-youtube"></i>
+                    <span>YouTube 24/7 Холбох</span>
                 </button>
             </div>
         `;
@@ -259,7 +260,7 @@ async function analyzeUrl() {
         let usedOrigin = "";
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000);
+            const timeoutId = setTimeout(() => controller.abort(), 45000);
             res = await fetch("/api/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -275,11 +276,15 @@ async function analyzeUrl() {
             if (!window.location.hostname.includes("eu")) {
                 usedOrigin = "https://three01-downloader-eu.onrender.com";
                 state.serverOrigin = usedOrigin;
+                const controller2 = new AbortController();
+                const timeoutId2 = setTimeout(() => controller2.abort(), 45000);
                 res = await fetch(`${usedOrigin}/api/analyze`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ url })
+                    body: JSON.stringify({ url }),
+                    signal: controller2.signal
                 });
+                clearTimeout(timeoutId2);
             } else {
                 throw fetchErr;
             }
