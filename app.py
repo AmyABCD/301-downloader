@@ -443,8 +443,13 @@ def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any
     if is_youtube:
         if has_cookies:
             opts['cookiefile'] = COOKIE_FILE
-        # Use visionos & android clients: extracts 48+ formats up to 4K UHD and 320k audio in ~1.7s without SABR or timeouts
-        opts['extractor_args'] = {'youtube': {'player_client': ['visionos', 'android']}}
+        # Skip blocked webpage HTML download completely to bypass datacenter IP firewalls!
+        opts['extractor_args'] = {
+            'youtube': {
+                'player_skip': ['webpage', 'configs'],
+                'player_client': ['visionos', 'android']
+            }
+        }
 
     return opts
 
