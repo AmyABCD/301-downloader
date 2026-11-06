@@ -394,7 +394,7 @@ except Exception:
     CHROME_TARGET = None
 
 
-def get_ydl_base_opts(url: str = "", use_cookies: bool = True) -> Dict[str, Any]:
+def get_ydl_base_opts(url: str = "", use_cookies: bool = False) -> Dict[str, Any]:
     has_cookies = use_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
     opts = {
         'quiet': True,
@@ -402,10 +402,10 @@ def get_ydl_base_opts(url: str = "", use_cookies: bool = True) -> Dict[str, Any]
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 10,
-        'retries': 2,
-        'fragment_retries': 2,
-        'extractor_retries': 1,
+        'socket_timeout': 6,
+        'retries': 1,
+        'fragment_retries': 1,
+        'extractor_retries': 0,
         'ignore_no_formats_error': True,
         'check_formats': None,
         'cachedir': CACHE_DIR,
@@ -488,8 +488,8 @@ async def analyze_url(req: AnalyzeRequest):
     # Run extraction in thread to avoid blocking asyncio event loop
     loop = asyncio.get_event_loop()
     def extract():
-        # 1. Main attempt: with cookies or best platform defaults
-        opts = get_ydl_base_opts(url=url, use_cookies=True)
+        # 1. Clean attempt without cookies: lightning fast (~1.7s), gives 48 formats up to 4K
+        opts = get_ydl_base_opts(url=url, use_cookies=False)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 res = ydl.extract_info(url, download=False)
@@ -499,23 +499,24 @@ async def analyze_url(req: AnalyzeRequest):
         except Exception:
             pass
 
-        # 2. Secondary attempt: fallback without cookies
-        try:
-            opts_clean = get_ydl_base_opts(url=url, use_cookies=False)
-            with yt_dlp.YoutubeDL(opts_clean) as ydl_clean:
-                res = ydl_clean.extract_info(url, download=False)
-                fmts = res.get("formats", [])
-                if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
-                    return res
-        except Exception:
-            pass
+        # 2. Try with cookies if clean attempt failed (for private, age-restricted, or member videos)
+        if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+            try:
+                opts_c = get_ydl_base_opts(url=url, use_cookies=True)
+                with yt_dlp.YoutubeDL(opts_c) as ydl_c:
+                    res = ydl_c.extract_info(url, download=False)
+                    fmts = res.get("formats", [])
+                    if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
+                        return res
+            except Exception:
+                pass
 
-        # 3. Last fallback: mobile & alternative clients
+        # 3. Fallback: alternative clients
         opts_alt = get_ydl_base_opts(url=url, use_cookies=False)
         opts_alt.pop('username', None)
         opts_alt.pop('password', None)
         if "youtube" in url.lower() or "youtu.be" in url.lower():
-            opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'ios', 'tv']}}
+            opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'ios']}}
         with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
             return ydl_alt.extract_info(url, download=False)
 
@@ -728,7 +729,7 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
             format_selector = f'bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/b/best'
         postprocessors = []
 
-    base = get_ydl_base_opts(url=url, use_cookies=True)
+    base = get_ydl_base_opts(url=url, use_cookies=False)
     ydl_opts: Dict[str, Any] = {
         **base,
         'skip_download': False,
@@ -752,28 +753,29 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
                 job["thumbnail"] = info.get("thumbnail")
         except Exception as first_down_err:
             success = False
-            # Fallback 1: clean attempt without cookies
-            try:
-                ydl_opts_c = {
-                    **get_ydl_base_opts(url=url, use_cookies=False),
-                    'skip_download': False,
-                    'format': format_selector,
-                    'outtmpl': outtmpl,
-                    'progress_hooks': [progress_hook],
-                    'postprocessor_hooks': [postprocessor_hook],
-                    'windowsfilenames': True,
-                }
-                if postprocessors:
-                    ydl_opts_c['postprocessors'] = postprocessors
-                if format_type != "audio":
-                    ydl_opts_c['merge_output_format'] = 'mp4'
-                with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
-                    info = ydl_c.extract_info(url, download=True)
-                    job["video_title"] = info.get("title") or "Файл"
-                    job["thumbnail"] = info.get("thumbnail")
-                    success = True
-            except Exception:
-                pass
+            # Fallback 1: try with cookies if available (for private/age-restricted)
+            if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+                try:
+                    ydl_opts_c = {
+                        **get_ydl_base_opts(url=url, use_cookies=True),
+                        'skip_download': False,
+                        'format': format_selector,
+                        'outtmpl': outtmpl,
+                        'progress_hooks': [progress_hook],
+                        'postprocessor_hooks': [postprocessor_hook],
+                        'windowsfilenames': True,
+                    }
+                    if postprocessors:
+                        ydl_opts_c['postprocessors'] = postprocessors
+                    if format_type != "audio":
+                        ydl_opts_c['merge_output_format'] = 'mp4'
+                    with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
+                        info = ydl_c.extract_info(url, download=True)
+                        job["video_title"] = info.get("title") or "Файл"
+                        job["thumbnail"] = info.get("thumbnail")
+                        success = True
+                except Exception:
+                    pass
 
             if not success:
                 # Fallback 2: android/tv client fallback
