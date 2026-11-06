@@ -100,15 +100,15 @@ def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0", with
         def error(self, msg): log_stream.write(f"ERR: {msg}\n")
 
     try:
-        node_path = shutil.which("node") or shutil.which("nodejs")
-        steps.append(f"Node path: {node_path}")
+        deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
+        steps.append(f"Deno path: {deno_bin} exists={os.path.exists(deno_bin)}")
         steps.append(f"Cookie exists: {os.path.exists(COOKIE_FILE)} ({os.path.getsize(COOKIE_FILE) if os.path.exists(COOKIE_FILE) else 0} bytes)")
         
         opts = get_ydl_base_opts(use_cookies=with_cookies)
         opts['logger'] = CustomLogger()
         opts['verbose'] = True
-        if node_path:
-            opts['js_runtimes'] = {'node': {'path': node_path}}
+        if os.path.exists(deno_bin):
+            opts['js_runtimes'] = {'deno': {'path': deno_bin}}
 
         with yt_dlp.YoutubeDL(opts) as ydl:
             inf = ydl.extract_info(url, download=False)
@@ -307,9 +307,9 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
-    node_path = shutil.which("node") or shutil.which("nodejs")
-    if node_path:
-        opts['js_runtimes'] = {'node': {'path': node_path}}
+    deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
+    if os.path.exists(deno_bin):
+        opts['js_runtimes'] = {'deno': {'path': deno_bin}}
     if CHROME_TARGET:
         opts['impersonate'] = CHROME_TARGET
     if FFMPEG_EXE:
