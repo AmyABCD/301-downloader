@@ -59,6 +59,29 @@ def limit(request):
 def command(url):
     return [sys.executable, '-m', 'yt_dlp', '--ignore-config', '--no-playlist', '--no-colors', '--socket-timeout', '20', '--retries', '2', '--extractor-retries', '2', '--use-extractors', 'youtube.*,facebook.*,instagram.*', url]
 
+def extractor_error(detail):
+    lower = detail.lower()
+    if 'not a bot' in lower or 'confirm you’re not' in lower or "confirm you're not" in lower:
+        return ('platform_verification', 'YouTube энэ серверээс хүн мөн эсэхийг баталгаажуулахыг шаардлаа. Энэ нь бичлэг нууц гэсэн үг биш. Одоогоор энэ серверээр YouTube татах боломжгүй байна.')
+    if 'private video' in lower or 'this video is private' in lower:
+        return ('private_video', 'Энэ бичлэг нийтэд нээлттэй биш байна.')
+    if 'sign in' in lower or 'login' in lower:
+        return ('login_required', 'Платформ энэ бичлэгт нэвтрэхийг шаардаж байна.')
+    if 'requested format is not available' in lower:
+        return ('format_unavailable', 'Сонгосон формат олдсонгүй. Өөр чанар эсвэл MP3 сонгоно уу.')
+    if 'unsupported url' in lower:
+        return ('unsupported_url', 'Энэ линкийг дэмжихгүй байна. Нэг бичлэгийн линк оруулна уу.')
+    if 'video unavailable' in lower or 'not available' in lower:
+        return ('unavailable', 'Платформ энэ бичлэгийг серверт өгөх боломжгүй байна.')
+    return ('extractor_failed', 'Бичлэгийн мэдээлэл авахад алдаа гарлаа. Серверийн алдааг бүртгэлд хадгаллаа.')
+
+def log_extractor_error(detail):
+    code, message = extractor_error(detail)
+    # Avoid recording signed URLs or query credentials in operational logs.
+    safe_detail = re.sub(r'https?://[^\s]+', '[URL]', detail)
+    print(json.dumps({'event':'extractor_error', 'code':code, 'detail':safe_detail[-2400:]}, ensure_ascii=False), flush=True)
+    return message
+
 async def run(args, timeout):
     proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
@@ -69,10 +92,7 @@ async def run(args, timeout):
         raise
     if proc.returncode:
         detail = err.decode(errors='replace')[-1800:]
-        # Keep errors useful, without exposing server paths to visitors.
-        if 'Sign in' in detail or 'login' in detail or 'cookies' in detail or 'private' in detail:
-            raise ValueError('Нэвтрэлт эсвэл платформын баталгаажуулалт шаардлаа. Нийтэд нээлттэй өөр бичлэг туршина уу.')
-        raise ValueError('Платформ бичлэгийг өгөхгүй байна, эсвэл линк дэмжигдэхгүй байна. Серверийн логийг шалгана уу.')
+        raise ValueError(log_extractor_error(detail))
     return out
 
 @app.get('/')
@@ -121,7 +141,7 @@ async def download(key, body):
                         if match: job['progress'] = min(99,float(match[1]))
                     if '[Merger]' in text or '[ExtractAudio]' in text or '[VideoConvertor]' in text:
                         job['message'] = 'Файл боловсруулж байна…'
-                    if text.startswith('ERROR:'): print(text, flush=True)
+                    if text.startswith('ERROR:'): job['failure_message'] = log_extractor_error(text)
                     size = sum(p.stat().st_size for p in folder.iterdir() if p.is_file())
                     if size > MAX_BYTES * 3:
                         raise ValueError('Бичлэгийн хэмжээ хэтэрлээ.')
@@ -133,7 +153,7 @@ async def download(key, body):
                     await proc.wait()
             files = list(folder.glob('*.'+body.kind))
             if proc.returncode or len(files) != 1:
-                raise ValueError('Татаж чадсангүй. Платформ нэвтрэлт шаардсан, таталтыг хязгаарласан эсвэл бичлэг хэт том байж болно.')
+                raise ValueError(job.pop('failure_message', 'Татаж чадсангүй. Бичлэг хэт том эсвэл сонгосон формат байхгүй байж болно.'))
             if files[0].stat().st_size > MAX_BYTES: raise ValueError('Файл 500 MB-аас том байна.')
             job.update(status='done',progress=100,file=files[0], message='Бэлэн боллоо')
     except Exception as e:
@@ -159,7 +179,7 @@ async def status(key: str):
     cleanup()
     job = jobs.get(key)
     if not job: raise HTTPException(404,'Файлын хугацаа дууссан байна.')
-    return {k:v for k,v in job.items() if k not in ('file','created')}
+    return {k:v for k,v in job.items() if k not in ('file','created','failure_message')}
 
 @app.get('/api/files/{key}')
 async def file(key: str):
