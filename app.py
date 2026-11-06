@@ -87,47 +87,6 @@ def health_check():
     return {"status": "ok", "service": "301 Downloader", "time": time.time()}
 
 
-@app.get("/api/debug-extract")
-def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0", with_cookies: bool = True):
-    import io
-    t0 = time.time()
-    steps = []
-    log_stream = io.StringIO()
-    class CustomLogger:
-        def debug(self, msg): log_stream.write(f"DEBUG: {msg}\n")
-        def info(self, msg): log_stream.write(f"INFO: {msg}\n")
-        def warning(self, msg): log_stream.write(f"WARN: {msg}\n")
-        def error(self, msg): log_stream.write(f"ERR: {msg}\n")
-
-    try:
-        deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
-        steps.append(f"Deno path: {deno_bin} exists={os.path.exists(deno_bin)}")
-        steps.append(f"Cookie exists: {os.path.exists(COOKIE_FILE)} ({os.path.getsize(COOKIE_FILE) if os.path.exists(COOKIE_FILE) else 0} bytes)")
-        
-        opts = get_ydl_base_opts(use_cookies=with_cookies)
-        opts['logger'] = CustomLogger()
-        opts['verbose'] = True
-        if os.path.exists(deno_bin):
-            opts['js_runtimes'] = {'deno': {'path': deno_bin}}
-
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            inf = ydl.extract_info(url, download=False)
-            fmts = inf.get('formats', [])
-            steps.append(f"Extracted: {time.time()-t0:.2f}s, fmts={len(fmts)}")
-            return {
-                "status": "ok",
-                "steps": steps,
-                "title": inf.get("title"),
-                "fmts_count": len(fmts),
-                "sample_formats": [
-                    {"id": f.get("format_id"), "ext": f.get("ext"), "res": f.get("resolution"), "vcodec": f.get("vcodec"), "acodec": f.get("acodec")}
-                    for f in fmts[:6]
-                ],
-                "logs": log_stream.getvalue()
-            }
-    except Exception as e:
-        return {"status": "error", "error": str(e), "steps": steps, "logs": log_stream.getvalue()}
-
 class AnalyzeRequest(BaseModel):
     url: str
 
@@ -298,8 +257,10 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 15,
-        'source_address': '0.0.0.0',
+        'socket_timeout': 10,
+        'retries': 2,
+        'fragment_retries': 2,
+        'extractor_retries': 1,
         'ignore_no_formats_error': True,
         'check_formats': None,
         'http_headers': {
@@ -314,8 +275,15 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
         opts['impersonate'] = CHROME_TARGET
     if FFMPEG_EXE:
         opts['ffmpeg_location'] = FFMPEG_EXE
+
     if has_cookies:
         opts['cookiefile'] = COOKIE_FILE
+        # For authenticated YouTube requests, tv and mweb support cookies and avoid web SABR restrictions
+        opts['extractor_args'] = {'youtube': {'player_client': ['tv', 'mweb', 'web_safari']}}
+    else:
+        # For clean YouTube sessions, visionos & android yield 45+ formats up to 4K without botwall or SABR
+        opts['extractor_args'] = {'youtube': {'player_client': ['visionos', 'android']}}
+
     return opts
 
 
@@ -397,9 +365,9 @@ async def analyze_url(req: AnalyzeRequest):
             except Exception:
                 pass
 
-        # 3. Fallback: mobile and TV clients (visionos, ios, android, tv, mweb)
+        # 3. Fallback: mobile and TV clients (android, ios, tv)
         opts_alt = get_ydl_base_opts(use_cookies=False)
-        opts_alt['extractor_args'] = {'youtube': {'player-client': ['visionos', 'ios', 'android', 'tv', 'mweb']}}
+        opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'ios', 'tv']}}
         with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
             return ydl_alt.extract_info(url, download=False)
 
@@ -637,8 +605,19 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
             # Fallback 1: with cookies if available (for private/age-restricted)
             if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
                 try:
-                    ydl_opts_c = dict(ydl_opts)
-                    ydl_opts_c['cookiefile'] = COOKIE_FILE
+                    ydl_opts_c = {
+                        **get_ydl_base_opts(use_cookies=True),
+                        'skip_download': False,
+                        'format': format_selector,
+                        'outtmpl': outtmpl,
+                        'progress_hooks': [progress_hook],
+                        'postprocessor_hooks': [postprocessor_hook],
+                        'windowsfilenames': True,
+                    }
+                    if postprocessors:
+                        ydl_opts_c['postprocessors'] = postprocessors
+                    if format_type != "audio":
+                        ydl_opts_c['merge_output_format'] = 'mp4'
                     with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
                         info = ydl_c.extract_info(url, download=True)
                         job["video_title"] = info.get("title") or "Файл"
@@ -647,9 +626,21 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
                 except Exception:
                     pass
             if not success:
-                # Fallback 2: mobile/tv clients
-                ydl_opts_alt = dict(ydl_opts)
-                ydl_opts_alt['extractor_args'] = {'youtube': {'player-client': ['visionos', 'ios', 'android', 'tv', 'mweb']}}
+                # Fallback 2: android/tv client fallback
+                ydl_opts_alt = {
+                    **get_ydl_base_opts(use_cookies=False),
+                    'skip_download': False,
+                    'format': format_selector,
+                    'outtmpl': outtmpl,
+                    'progress_hooks': [progress_hook],
+                    'postprocessor_hooks': [postprocessor_hook],
+                    'windowsfilenames': True,
+                }
+                ydl_opts_alt['extractor_args'] = {'youtube': {'player_client': ['android', 'tv']}}
+                if postprocessors:
+                    ydl_opts_alt['postprocessors'] = postprocessors
+                if format_type != "audio":
+                    ydl_opts_alt['merge_output_format'] = 'mp4'
                 with yt_dlp.YoutubeDL(ydl_opts_alt) as ydl_alt:
                     info = ydl_alt.extract_info(url, download=True)
                     job["video_title"] = info.get("title") or "Файл"
