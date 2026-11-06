@@ -80,82 +80,11 @@ JOBS: Dict[str, Dict[str, Any]] = {}
 # Public tunnel tracking
 GLOBAL_PUBLIC_URL: List[Optional[str]] = [None]
 TUNNEL_PROCESS: List[Optional[Any]] = [None]
-POT_PROCESS: List[Optional[Any]] = [None]
 
 
-def ensure_pot_provider() -> Dict[str, Any]:
-    try:
-        req = urllib.request.Request("http://127.0.0.1:4416/ping")
-        with urllib.request.urlopen(req, timeout=1) as resp:
-            return {"status": "running", "code": resp.status}
-    except Exception:
-        pass
-
-    deno_bin = shutil.which("deno") or "/root/.deno/bin/deno"
-    server_dir = "/root/bgutil-ytdlp-pot-provider/server"
-    if os.path.exists(server_dir) and (os.path.exists(deno_bin) or shutil.which("deno")):
-        try:
-            POT_PROCESS[0] = subprocess.Popen(
-                [deno_bin, "run", "-A", "src/main.ts"],
-                cwd=server_dir,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            time.sleep(2)
-            try:
-                req = urllib.request.Request("http://127.0.0.1:4416/ping")
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    return {"status": "running", "code": resp.status, "pid": POT_PROCESS[0].pid}
-            except Exception as pe:
-                return {"status": "started", "pid": POT_PROCESS[0].pid, "ping": str(pe)}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-    pot_bin = shutil.which("bgutil-pot") or "/usr/local/bin/bgutil-pot"
-    if os.path.exists(pot_bin):
-        try:
-            POT_PROCESS[0] = subprocess.Popen(
-                [pot_bin, "server", "--host", "127.0.0.1", "--port", "4416"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            time.sleep(1)
-            return {"status": "started", "pid": POT_PROCESS[0].pid}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    return {"status": "not_installed"}
-
-
-@app.on_event("startup")
-def on_startup():
-    ensure_pot_provider()
-
-
-@app.get("/api/pot-status")
-def get_pot_status():
-    return ensure_pot_provider()
-
-
-@app.get("/api/test-pot")
-def test_pot(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0", client: str = "mweb,tv"):
-    import subprocess
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "-v",
-        "--skip-download",
-        "--dump-json",
-        "--extractor-args", f"youtube:player-client={client}",
-        url
-    ]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return {
-            "returncode": res.returncode,
-            "stdout_len": len(res.stdout),
-            "stderr": res.stderr[-800:] if res.stderr else ""
-        }
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "service": "301 Downloader", "time": time.time()}
 
 class AnalyzeRequest(BaseModel):
     url: str
