@@ -86,6 +86,24 @@ TUNNEL_PROCESS: List[Optional[Any]] = [None]
 def health_check():
     return {"status": "ok", "service": "301 Downloader", "time": time.time()}
 
+
+@app.get("/api/debug-extract")
+def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
+    t0 = time.time()
+    steps = []
+    try:
+        steps.append(f"Start: {time.time()-t0:.2f}s")
+        opts = get_ydl_base_opts(use_cookies=False)
+        steps.append(f"Opts: {time.time()-t0:.2f}s")
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            steps.append(f"YDL initialized: {time.time()-t0:.2f}s")
+            inf = ydl.extract_info(url, download=False)
+            steps.append(f"Extracted: {time.time()-t0:.2f}s, fmts={len(inf.get('formats', []))}")
+            return {"status": "ok", "steps": steps, "title": inf.get("title")}
+    except Exception as e:
+        steps.append(f"Exception: {time.time()-t0:.2f}s -> {str(e)}")
+        return {"status": "error", "steps": steps, "error": str(e)}
+
 class AnalyzeRequest(BaseModel):
     url: str
 
