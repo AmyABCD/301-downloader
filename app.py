@@ -319,16 +319,16 @@ except Exception:
     CHROME_TARGET = None
 
 
-def get_ydl_base_opts() -> Dict[str, Any]:
-    has_cookies = os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
-    clients = ['web', 'mweb', 'ios', 'android'] if has_cookies else ['web', 'mweb', 'tv', 'web_safari', 'ios']
+def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
+    has_cookies = use_cookies and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0
+    clients = ['web', 'mweb']
     opts = {
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
         'no_color': True,
         'noplaylist': True,
-        'socket_timeout': 25,
+        'socket_timeout': 15,
         'source_address': '0.0.0.0',
         'ignore_no_formats_error': True,
         'check_formats': None,
@@ -336,15 +336,9 @@ def get_ydl_base_opts() -> Dict[str, Any]:
             'youtube': {
                 'player-client': clients,
             },
-            'youtubepot-bgutilscript': {
-                'server_home': ['/root/bgutil-ytdlp-pot-provider/server']
-            },
-            'youtubepot-bgutilhttp': {
-                'base_url': ['http://127.0.0.1:4416']
-            }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
@@ -412,51 +406,62 @@ async def analyze_url(req: AnalyzeRequest):
     # Run extraction in thread to avoid blocking asyncio event loop
     loop = asyncio.get_event_loop()
     def extract():
-        opts = get_ydl_base_opts()
+        # 1. Clean attempt without cookies (fastest, full resolutions up to 4K/1080p, bypasses account SABR experiment)
+        opts = get_ydl_base_opts(use_cookies=False)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(url, download=False)
-        except Exception as first_err:
-            if "youtube" in url.lower() or "youtu.be" in url.lower():
-                opts_alt = dict(opts)
-                opts_alt['extractor_args'] = {
-                    'youtube': {'player-client': ['ios', 'android', 'mweb']},
-                    'youtubepot-bgutilscript': {'server_home': ['/root/bgutil-ytdlp-pot-provider/server']},
-                    'youtubepot-bgutilhttp': {'base_url': ['http://127.0.0.1:4416']}
-                }
-                try:
-                    with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
-                        return ydl_alt.extract_info(url, download=False)
-                except Exception:
-                    pass
-            raise first_err
+                res = ydl.extract_info(url, download=False)
+                fmts = res.get("formats", [])
+                if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
+                    return res
+        except Exception:
+            pass
+
+        # 2. Try with cookies if available (for private, age-restricted, or member videos)
+        if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+            try:
+                opts_c = get_ydl_base_opts(use_cookies=True)
+                with yt_dlp.YoutubeDL(opts_c) as ydl_c:
+                    res = ydl_c.extract_info(url, download=False)
+                    fmts = res.get("formats", [])
+                    if any(f.get("vcodec") != "none" or f.get("acodec") != "none" for f in fmts):
+                        return res
+            except Exception:
+                pass
+
+        # 3. Fallback: mobile and TV clients (visionos, ios, android, tv, mweb)
+        opts_alt = get_ydl_base_opts(use_cookies=False)
+        opts_alt['extractor_args'] = {'youtube': {'player-client': ['visionos', 'ios', 'android', 'tv', 'mweb']}}
+        with yt_dlp.YoutubeDL(opts_alt) as ydl_alt:
+            return ydl_alt.extract_info(url, download=False)
 
     try:
         info = await loop.run_in_executor(None, extract)
     except Exception as e:
-            err_msg = str(e)
-            is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
-            if not is_eu and ("429" in err_msg or "403" in err_msg or "bot" in err_msg.lower() or "player response" in err_msg.lower()):
-                try:
-                    proxy_req = urllib.request.Request(
-                        "https://three01-downloader-eu.onrender.com/api/analyze",
-                        data=json.dumps({"url": url}).encode("utf-8"),
-                        headers={"Content-Type": "application/json"}
-                    )
-                    with urllib.request.urlopen(proxy_req, timeout=30) as resp:
-                        return json.loads(resp.read().decode())
-                except Exception:
-                    pass
+        err_msg = str(e)
+        is_eu = "eu" in os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
+        # Cross-region failover: if US server fails, proxy immediately to EU server
+        if not is_eu:
+            try:
+                proxy_req = urllib.request.Request(
+                    "https://three01-downloader-eu.onrender.com/api/analyze",
+                    data=json.dumps({"url": url}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(proxy_req, timeout=20) as resp:
+                    return json.loads(resp.read().decode())
+            except Exception:
+                pass
 
-            if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
-                detail = "YouTube датацентрын хандалтыг шалгаж байна. '🍪 Cookies' цэсээр 1 удаа Cookies оруулснаар таны компьютер унтраатай байсан ч 24/7 найдвартай ажиллана."
-            elif "Private video" in err_msg or "login" in err_msg.lower():
-                detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
-            elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
-                detail = "Энэ линк хүчингүй эсвэл дэмжигдээгүй сайт байна."
-            else:
-                detail = f"Мэдээлэл авахад алдаа гарлаа: {err_msg[:120]}"
-            raise HTTPException(status_code=400, detail=detail)
+        if "Failed to extract any player response" in err_msg or "HTTP Error 403" in err_msg or "Sign in to confirm you're not a bot" in err_msg:
+            detail = "YouTube хандалтыг шалгаж байна. Дахин оролдох эсвэл түр хүлээнэ үү."
+        elif "Private video" in err_msg or "login" in err_msg.lower():
+            detail = "Энэ бичлэг нь хувийн (Private) эсвэл зөвхөн нэвтэрсэн хэрэглэгчдэд нээлттэй байна."
+        elif "regex" in err_msg.lower() or "unsupported" in err_msg.lower():
+            detail = "Энэ линк хүчингүй эсвэл дэмжигдээгүй сайт байна."
+        else:
+            detail = f"Мэдээлэл авахад алдаа гарлаа: {err_msg[:120]}"
+        raise HTTPException(status_code=400, detail=detail)
 
     if not info:
         raise HTTPException(status_code=404, detail="Бичлэгийн мэдээлэл олдсонгүй")
@@ -621,19 +626,9 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
 
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title).70B.%(ext)s")
 
-    base = get_ydl_base_opts()
-    ydl_opts: Dict[str, Any] = {
-        **base,
-        'skip_download': False,
-        'outtmpl': outtmpl,
-        'progress_hooks': [progress_hook],
-        'postprocessor_hooks': [postprocessor_hook],
-        'windowsfilenames': True,
-    }
-
     if format_type == "audio":
-        ydl_opts['format'] = 'bestaudio/best'
-        ydl_opts['postprocessors'] = [{
+        format_selector = 'ba/b/bestaudio/best'
+        postprocessors = [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': quality if quality in ["128", "192", "256", "320"] else "192",
@@ -641,11 +636,26 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
     else:
         # Video format logic
         if quality == "best" or not quality.isdigit():
-            ydl_opts['format'] = 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/best'
+            format_selector = 'bv*+ba/b/best'
         else:
             h = int(quality)
-            ydl_opts['format'] = f'bv*[height<={h}][ext=mp4]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}][ext=mp4]/b[height<={h}]/best'
-        
+            format_selector = f'bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/b/best'
+        postprocessors = []
+
+    base = get_ydl_base_opts(use_cookies=False)
+    ydl_opts: Dict[str, Any] = {
+        **base,
+        'skip_download': False,
+        'format': format_selector,
+        'outtmpl': outtmpl,
+        'progress_hooks': [progress_hook],
+        'postprocessor_hooks': [postprocessor_hook],
+        'windowsfilenames': True,
+        'ignore_no_formats_error': True,
+    }
+    if postprocessors:
+        ydl_opts['postprocessors'] = postprocessors
+    if format_type != "audio":
         ydl_opts['merge_output_format'] = 'mp4'
 
     try:
@@ -655,19 +665,27 @@ def background_downloader(job_id: str, url: str, format_type: str, quality: str)
                 job["video_title"] = info.get("title") or "Файл"
                 job["thumbnail"] = info.get("thumbnail")
         except Exception as first_down_err:
-            if "youtube" in url.lower() or "youtu.be" in url.lower():
+            success = False
+            # Fallback 1: with cookies if available (for private/age-restricted)
+            if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+                try:
+                    ydl_opts_c = dict(ydl_opts)
+                    ydl_opts_c['cookiefile'] = COOKIE_FILE
+                    with yt_dlp.YoutubeDL(ydl_opts_c) as ydl_c:
+                        info = ydl_c.extract_info(url, download=True)
+                        job["video_title"] = info.get("title") or "Файл"
+                        job["thumbnail"] = info.get("thumbnail")
+                        success = True
+                except Exception:
+                    pass
+            if not success:
+                # Fallback 2: mobile/tv clients
                 ydl_opts_alt = dict(ydl_opts)
-                ydl_opts_alt['extractor_args'] = {
-                    'youtube': {'player-client': ['ios', 'android', 'mweb']},
-                    'youtubepot-bgutilscript': {'server_home': ['/root/bgutil-ytdlp-pot-provider/server']},
-                    'youtubepot-bgutilhttp': {'base_url': ['http://127.0.0.1:4416']}
-                }
+                ydl_opts_alt['extractor_args'] = {'youtube': {'player-client': ['visionos', 'ios', 'android', 'tv', 'mweb']}}
                 with yt_dlp.YoutubeDL(ydl_opts_alt) as ydl_alt:
                     info = ydl_alt.extract_info(url, download=True)
                     job["video_title"] = info.get("title") or "Файл"
                     job["thumbnail"] = info.get("thumbnail")
-            else:
-                raise first_down_err
 
         # Find the final generated file
         final_ext = "mp3" if format_type == "audio" else "mp4"
