@@ -88,7 +88,7 @@ def health_check():
 
 
 @app.get("/api/debug-extract")
-def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
+def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0", with_cookies: bool = True):
     import io
     t0 = time.time()
     steps = []
@@ -100,22 +100,33 @@ def debug_extract(url: str = "https://www.youtube.com/watch?v=7arUzCQDTs0"):
         def error(self, msg): log_stream.write(f"ERR: {msg}\n")
 
     try:
-        steps.append(f"Start: {time.time()-t0:.2f}s")
-        opts = get_ydl_base_opts(use_cookies=False)
+        node_path = shutil.which("node") or shutil.which("nodejs")
+        steps.append(f"Node path: {node_path}")
+        steps.append(f"Cookie exists: {os.path.exists(COOKIE_FILE)} ({os.path.getsize(COOKIE_FILE) if os.path.exists(COOKIE_FILE) else 0} bytes)")
+        
+        opts = get_ydl_base_opts(use_cookies=with_cookies)
         opts['logger'] = CustomLogger()
         opts['verbose'] = True
+        if node_path:
+            opts['js_runtimes'] = {'node': {'path': node_path}}
+
         with yt_dlp.YoutubeDL(opts) as ydl:
             inf = ydl.extract_info(url, download=False)
-            steps.append(f"Extracted: {time.time()-t0:.2f}s, fmts={len(inf.get('formats', []))}")
+            fmts = inf.get('formats', [])
+            steps.append(f"Extracted: {time.time()-t0:.2f}s, fmts={len(fmts)}")
             return {
                 "status": "ok",
                 "steps": steps,
                 "title": inf.get("title"),
-                "fmts_count": len(inf.get("formats", [])),
+                "fmts_count": len(fmts),
+                "sample_formats": [
+                    {"id": f.get("format_id"), "ext": f.get("ext"), "res": f.get("resolution"), "vcodec": f.get("vcodec"), "acodec": f.get("acodec")}
+                    for f in fmts[:6]
+                ],
                 "logs": log_stream.getvalue()
             }
     except Exception as e:
-        return {"status": "error", "error": str(e), "logs": log_stream.getvalue()}
+        return {"status": "error", "error": str(e), "steps": steps, "logs": log_stream.getvalue()}
 
 class AnalyzeRequest(BaseModel):
     url: str
@@ -296,6 +307,9 @@ def get_ydl_base_opts(use_cookies: bool = False) -> Dict[str, Any]:
             'Accept-Language': 'en-US,en;q=0.9,mn;q=0.8',
         }
     }
+    node_path = shutil.which("node") or shutil.which("nodejs")
+    if node_path:
+        opts['js_runtimes'] = {'node': {'path': node_path}}
     if CHROME_TARGET:
         opts['impersonate'] = CHROME_TARGET
     if FFMPEG_EXE:
